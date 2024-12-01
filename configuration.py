@@ -1,5 +1,6 @@
 import argparse
 import logging
+import matplotlib
 import os
 import sys
 import yaml
@@ -183,51 +184,6 @@ def validate_and_cast_config(config):
     return config
 
 
-def create_save_path_dict(config):
-    """
-    Create a dictionary with folder names and save paths for various outputs (e.g., checkpoints, graphs, etc.).
-    Args:
-        config (dict): The sanitized configuration dictionary.
-    Returns:
-        dict: A dictionary where keys are folder names and values are paths or False (if saving is disabled).
-    """
-    save_dict = {
-        'checkpoints': config['save_model'],
-        'graph': config['save_graph'],
-        'plots': config['save_plots'],
-        'profile': config['save_profile']
-    }
-
-    # If no saving is enabled, return the dictionary without creating directories
-    if not any(save_dict.values()):
-        return save_dict
-
-    # Generate a timestamped save directory
-    timestamp = datetime.now().strftime("%Y_%m_%d-%I_%M_%S_%p")
-    save_path = os.path.join(config['save_path'], timestamp)
-    os.makedirs(save_path, exist_ok=True)
-
-    # Setup logging based on output mode
-    if config["output_mode"] == "log":
-        log_file_path = os.path.join(save_path, 'log_file.txt')
-        setup_logging(config["output_mode"], log_file_path)
-    elif config["output_mode"] == "verbose":
-        setup_logging(config["output_mode"])
-    else:
-        raise ValueError("Invalid output_mode. Expected 'log' or 'verbose'.")
-
-    # Create subdirectories for enabled save types
-    for dir_name, should_save in save_dict.items():
-        if should_save:
-            temp_save_path = os.path.join(save_path, dir_name)
-            os.makedirs(temp_save_path, exist_ok=True)
-            save_dict[dir_name] = temp_save_path
-        else:
-            save_dict[dir_name] = False
-
-    return save_dict
-
-
 def print_configuration(config, mode, model, space_from_start=40):
     """
     Print the mode, model, and configuration parameters in a perfectly aligned format.
@@ -262,43 +218,102 @@ def print_configuration(config, mode, model, space_from_start=40):
     print("\nParameters:\n" + "-" * (space_from_start * 3))
 
     # Print each parameter with aligned values
-    for key, value in sorted(flat_config.items()):
+    for i, (key, value) in enumerate(sorted(flat_config.items())):
         if key not in ["data_path", "save_path"]:  # Skip already printed keys
             spaces = " " * (space_from_start - len(key))  # Calculate spaces for alignment
-            print(f"{key}{spaces}{value}")
+            if i == len(flat_config) - 1:
+                print(f"{key}{spaces}{value}\n{'=' * (space_from_start * 3)}")
+            else:
+                print(f"{key}{spaces}{value}")
 
-    print("=" * (space_from_start * 3))
+    # print("=" * (space_from_start * 3))
 
 
-def setup_logging(output_mode, log_file_path=None):
+def create_save_path_dict(config):
     """
-    Setup logging based on output mode.
+    Create a dictionary with folder names and save paths for various outputs (e.g., checkpoints, graphs, etc.).
     Args:
-        output_mode (str): 'verbose' to print to console, 'log' to write to a file.
-        log_file_path (str): Path to the log file (used only if output_mode='log').
+        config (dict): The sanitized configuration dictionary.
+    Returns:
+        dict: A dictionary where keys are folder names and values are paths or False (if saving is disabled).
     """
-    if output_mode == "log":
-        if not log_file_path:
-            raise ValueError("log_file_path must be provided when output_mode='log'")
-        logger = logging.getLogger()
-        logger.setLevel(logging.DEBUG)
-        logger.handlers = []  # Clear existing handlers to avoid duplicate logs
+    save_dict = {
+        'checkpoints': config['save_model'],
+        'graph': config['save_graph'],
+        'plots': config['save_plots'],
+        'profile': config['save_profile']
+    }
 
-        # File logging
-        file_handler = logging.FileHandler(log_file_path, mode='w')
-        file_handler.setLevel(logging.DEBUG)
-        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
+    # If no saving is enabled, return the dictionary without creating directories
+    if not any(save_dict.values()):
+        return save_dict
 
-        # Redirect stdout and stderr to the logger
-        sys.stdout = LoggerWriter(logger, logging.INFO)
-        sys.stderr = LoggerWriter(logger, logging.ERROR)
-    elif output_mode == "verbose":
-        # Do nothing for verbose; console output is default
-        pass
-    else:
-        raise ValueError("Invalid output_mode. Expected 'log' or 'verbose'.")
+    # Generate a timestamped save directory
+    timestamp = datetime.now().strftime("%Y_%m_%d-%I_%M_%S_%p")
+    save_path = os.path.join(config['save_path'], timestamp)
+    os.makedirs(save_path, exist_ok=True)
+
+    # Setup logging only if mode is 'log'
+    if config["output_mode"] == "log":
+        log_file_path = os.path.join(save_path, 'log_file.txt')
+        setup_logging(log_file_path)
+
+    # Create subdirectories for enabled save types
+    for dir_name, should_save in save_dict.items():
+        if should_save:
+            temp_save_path = os.path.join(save_path, dir_name)
+            os.makedirs(temp_save_path, exist_ok=True)
+            save_dict[dir_name] = temp_save_path
+        else:
+            save_dict[dir_name] = False
+
+    return save_dict
+
+
+def suppress_console_handlers():
+    """
+    Suppress console (StreamHandler) output from all loggers except the root logger.
+    """
+    root_logger = logging.getLogger()
+    for name, logger in logging.root.manager.loggerDict.items():
+        if isinstance(logger, logging.Logger):
+            for handler in logger.handlers[:]:
+                if isinstance(handler, logging.StreamHandler):
+                    logger.removeHandler(handler)  # Remove StreamHandler
+            logger.propagate = True  # Ensure logs flow to root logger
+
+
+def setup_logging(log_file_path=None):
+    """
+    Setup logging to capture all logs, suppress console outputs, and redirect print statements.
+    Args:
+        log_file_path (str): Path to the log file.
+    """
+    if not log_file_path:
+        raise ValueError("log_file_path must be provided when logging is enabled.")
+
+    # Configure the root logger
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)  # Capture all levels, DEBUG and higher
+    logger.handlers = []  # Clear existing handlers
+
+    # File handler to capture all logs
+    file_handler = logging.FileHandler(log_file_path, mode='w')
+    file_handler.setLevel(logging.INFO)  # Log everything to the file
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s')
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    # Redirect stdout and stderr to logger
+    sys.stdout = LoggerWriter(logger, logging.INFO)
+    sys.stderr = LoggerWriter(logger, logging.ERROR)
+
+    # Suppress third-party console handlers
+    suppress_console_handlers()
+
+    # Suppress unnecessary debug logs from matplotlib
+    matplotlib.set_loglevel("warning")
+
 
 class LoggerWriter:
     """

@@ -45,7 +45,7 @@ def train_ddpm(config, train_loader, val_loader, device, save_dict):
     epoch_loss_list = []
     val_epoch_loss_list = []
 
-    disable_prog_bar = True if config['output_mode'] == 'log' else False
+    disable_prog_bar = config['output_mode'] == 'log'
     scaler = GradScaler()
     total_start = time.time()
     for epoch in range(config['n_epochs']):
@@ -76,6 +76,10 @@ def train_ddpm(config, train_loader, val_loader, device, save_dict):
             progress_bar.set_postfix({"loss": epoch_loss / (step + 1)})
         epoch_loss_list.append(epoch_loss / (step + 1))
 
+        # Log epoch loss
+        if config['output_mode'] == 'log':
+            print(f"Epoch {epoch} - Train Loss: {epoch_loss / len(train_loader):.4f}")
+
         if epoch % config['val_interval'] == 0:
             model.eval()
             val_epoch_loss = 0
@@ -94,12 +98,16 @@ def train_ddpm(config, train_loader, val_loader, device, save_dict):
                 progress_bar.set_postfix({"val_loss": val_epoch_loss / (step + 1)})
             val_epoch_loss_list.append(val_epoch_loss / (step + 1))
 
+            # Log validation loss
+            if config['output_mode'] == 'log':
+                print(f"Epoch {epoch} - Validation Loss: {val_epoch_loss / len(val_loader):.4f}")
+
             # Sampling image during training
             image = torch.randn((1, 1) + config['resized_size'])
             image = image.to(device)
             scheduler.set_timesteps(num_inference_steps=config['n_infer_timesteps'])
             with autocast(enabled=True):
-                image = inferer.sample(input_noise=image, diffusion_model=model, scheduler=scheduler)
+                image = inferer.sample(input_noise=image, diffusion_model=model, scheduler=scheduler, verbose=not disable_prog_bar)
 
             if config['save_plots']:
                 plt.figure(figsize=(2, 2))
