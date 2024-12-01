@@ -1,0 +1,13 @@
+# Ignore everything
+*
+
+# Allow specific files or directories
+!.gitignore
+!/config.yaml
+!/configuration.py
+!/data_processing.py
+!/main.py
+!/requirements.txt
+!/training.py
+!/README.md
+
