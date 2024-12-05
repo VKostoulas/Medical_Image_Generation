@@ -27,7 +27,7 @@ def get_data_loaders(config):
             Resized(keys=["image"], spatial_size=config['resized_size']),
         ]
     )
-    progress = False if config['output_mode'] == 'log' else True
+    progress = False if (config['output_mode'] == 'log' or not config['progress_bar']) else True
     train_ds = DecathlonDataset(root_dir=config['data_path'], task="Task01_BrainTumour", transform=data_transform,
                                 section="training", download=True, progress=progress)
     train_loader = DataLoader(train_ds, batch_size=config['batch_size'], shuffle=True, num_workers=8, persistent_workers=True,

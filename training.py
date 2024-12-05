@@ -45,7 +45,7 @@ def train_ddpm(config, train_loader, val_loader, device, save_dict):
     epoch_loss_list = []
     val_epoch_loss_list = []
 
-    disable_prog_bar = config['output_mode'] == 'log'
+    disable_prog_bar = config['output_mode'] == 'log' or not config['progress_bar']
     scaler = GradScaler()
     total_start = time.time()
     for epoch in range(config['n_epochs']):

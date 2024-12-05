@@ -7,6 +7,22 @@ Segmentation Decathlon](http://medicaldecathlon.com/) format, and that's it!
 Go train your model! Assuming that you have enough GPU memory (these 3D models
 can take a colossal amount of memory) and you know exactly your architecture...
 
+## Requirements
+
+- python 3.9
+
+It's better to install pytorch on your own following the official [pytorch 
+installation guide](https://pytorch.org/get-started/locally/). Also make the 
+following installations with pip:
+
+- pip install pyyaml
+- pip install matplotlib
+- pip install tqdm
+- pip install nibabel
+- pip install scikit-image
+- pip install monai
+- pip install monai-generative
+
 ## Usage Example
 
 [//]: # (To run the program, use the following command in your terminal:)

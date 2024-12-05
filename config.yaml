@@ -17,6 +17,7 @@ model_params:
   num_head_channels: [0, 0, 256]
   num_res_blocks: 2
 
+progress_bar: False
 output_mode: "verbose"
 save_model: False
 save_graph: False

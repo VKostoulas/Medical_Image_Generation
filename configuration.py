@@ -39,6 +39,7 @@ def parse_arguments():
                         help="List of attention levels")
     parser.add_argument("--num_head_channels", nargs='+', type=int, help="List of head channel numbers")
     parser.add_argument("--num_res_blocks", type=int, help="Number of residual blocks")
+    parser.add_argument("--progress_bar", type=lambda x: x.lower() == 'true', help="Use progress bars")
     parser.add_argument("--output_mode", type=str, help="Output mode")
     parser.add_argument("--save_model", type=lambda x: x.lower() == 'true', help="Whether to save the model")
     parser.add_argument("--save_graph", type=lambda x: x.lower() == 'true',
@@ -86,6 +87,8 @@ def update_config_with_args(config, args):
         config["model_params"]["num_head_channels"] = args.num_head_channels
     if args.num_res_blocks is not None:
         config["model_params"]["num_res_blocks"] = args.num_res_blocks
+    if args.progress_bar is not None:
+        config["progress_bar"] = args.progress_bar
     if args.output_mode is not None:
         config["output_mode"] = args.output_mode
     if args.save_model is not None:
@@ -141,6 +144,8 @@ def validate_and_cast_config(config):
     config["learning_rate"] = float(config["learning_rate"])
     if config["learning_rate"] <= 0:
         raise ValueError("learning_rate must be a positive number.")
+
+    config["progress_bar"] = bool(config["progress_bar"])
 
     config["output_mode"] = str(config["output_mode"])
     if config["output_mode"] not in ["log", "verbose"]:
