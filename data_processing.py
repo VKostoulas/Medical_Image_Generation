@@ -127,11 +127,14 @@ class MedicalDataset(Dataset):
         # Select specific channels if channel_ids is provided
         if self.channel_ids is not None:
             image = image[self.channel_ids, ...]
-        image = np.expand_dims(image, axis=0)  # add batch dimension
+        if len(image.shape) < 4:
+            image = np.expand_dims(image, axis=0)  # add channel dimension
         # Z-score normalization
-        mean = np.mean(image)
-        std = np.std(image)
+        mean = np.mean(image, axis=(1, 2, 3), keepdims=True)  # Mean per channel
+        std = np.std(image, axis=(1, 2, 3), keepdims=True)  # Std per channel
         image = (image - mean) / std
+
+        image = np.expand_dims(image, axis=0)  # add batch dimension
         return image
 
     def __getitem__(self, idx):
