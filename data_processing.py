@@ -128,11 +128,10 @@ class MedicalDataset(Dataset):
         if self.channel_ids is not None:
             image = image[self.channel_ids, ...]
         image = np.expand_dims(image, axis=0)  # add batch dimension
-        # Normalize to [-1, 1] range
-        min_value = image.min()
-        max_value = image.max()
-        if max_value != min_value:  # Avoid division by zero
-            image = 2 * (image - min_value) / (max_value - min_value) - 1
+        # Z-score normalization
+        mean = np.mean(image)
+        std = np.std(image)
+        image = (image - mean) / std
         return image
 
     def __getitem__(self, idx):
