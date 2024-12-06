@@ -2,8 +2,7 @@
 
 ## Description
 Training and sampling with 2D or 3D image generation models on your dataset
-has never been that easy! Simply, create your dataset based on [Medical 
-Segmentation Decathlon](http://medicaldecathlon.com/) format, and that's it!
+has never been that easy! Simply, create your dataset, and that's it!
 Go train your model! Assuming that you have enough GPU memory (these 3D models
 can take a colossal amount of memory) and you know exactly your architecture...
 
@@ -11,34 +10,52 @@ can take a colossal amount of memory) and you know exactly your architecture...
 
 - python 3.9
 
-It's better to install pytorch on your own following the official [pytorch 
-installation guide](https://pytorch.org/get-started/locally/). Also make the 
-following installations with pip:
+- Install pytorch following the official [pytorch 
+installation guide](https://pytorch.org/get-started/locally/).
 
-- pip install pyyaml
-- pip install matplotlib
-- pip install tqdm
-- pip install nibabel
-- pip install scikit-image
-- pip install monai
-- pip install monai-generative
+- Install the following libraries with pip:
+  - pip install pyyaml matplotlib tqdm nibabel scikit-image monai 
+  monai-generative nnunet
 
-## Usage Example
 
-[//]: # (To run the program, use the following command in your terminal:)
+## Usage Instructions
 
+### Dataset preparation
+First create your dataset (if you haven't done yet). Datasets must follow 
+the [Medical Segmentation Decathlon](http://medicaldecathlon.com/) format, where
+all training images are contained in a folder called **imagesTr**, and are compressed 
+nifti files (.nii.gz). All your datasets should be in the same folder for 
+flexibility, and the names of the dataset folders gives them a unique *task* 
+identifier.
+
+### Configuration
+All the global settings of the projects are stored in the config.yaml file. Modify 
+the yaml file in your preference, or parse the modifications when running main.py
+(see next section).
+
+### Training
+
+To train, simply run *main.py* with required arguments *mode* (train or sample),
+*model* (which generative model to use; currently only ddpm), *task* (the task to 
+train your model on), *data_path* (the path to the folder that contains all the task 
+folders) and *save_path* (path to save results). You can also modify any parameter of
+the config file when running main.py
+
+Example:
 ```bash
 python main.py \
 --mode train \
 --model ddpm \
+--task your_task \
 --data_path /home/path_to_your_data_folder/ \
 --save_path /home/path_to_your_save_folder/ \
 --output_mode log
 ```
+In the example we are training with a Denoising Diffusion Probabilistic Model, and 
+we are saving every output in a log file instead of printing on screen.
 
-- The config.yaml file contains all the global parameters that will be used in 
-any experiment you run. If you wish to change the values then either modify 
-the config file, or parse the argument with the changed value when you run
-main.py.
-- Current acceptable modes: train
-- Current acceptable models: ddpm
+Running an experiment will create a directory in your save_path. Depending 
+on your configuration the following folders or files will be created: 
+*checkpoints* folder, *model.graph*, *plots* folder.
+
+### Sampling

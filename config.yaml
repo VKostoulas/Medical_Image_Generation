@@ -1,5 +1,19 @@
-center_crop_size: [160, 200, 155]
-resized_size: [64, 64, 64]
+splitting: [0.8, 0.2]
+channels: [1]
+transformations:
+  patch_size: [160, 200, 155]
+  resize_shape: [64, 64 ,64]
+  elastic: False
+  scaling: true
+  rotation: true
+  gaussian_noise: False
+  gaussian_blur: False
+  brightness: False
+  contrast: False
+  gamma: False
+  mirror: False
+  dummy_2D: false
+
 batch_size: 1
 n_train_timesteps: 1000
 n_infer_timesteps: 1000
@@ -13,16 +27,16 @@ model_params:
   in_channels: 1
   out_channels: 1
   num_channels: [64, 128, 256]
-  attention_levels: [False, False, True]
+  attention_levels: [false, false, true]
   num_head_channels: [0, 0, 256]
   num_res_blocks: 2
 
-progress_bar: False
+progress_bar: True
 output_mode: "verbose"
-save_model: False
-save_graph: False
-save_plots: True
-save_profile: False
+save_model: false
+save_graph: false
+save_plots: true
+save_profile: false
 
 # for DecathlonDataset first run:
 # export TMPDIR=/path_to_temp_dir

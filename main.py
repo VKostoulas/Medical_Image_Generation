@@ -18,10 +18,9 @@ def main():
 
     # Step 6: Use the mode, model, and configuration in your script logic
     if mode == "train":
-        print(f"\nStarting training {model} model...")
         train_model(model, config, save_dict)
     elif mode == "infer":
-        print("Starting inference...")
+        pass
         # Add your inference code here
     else:
         raise ValueError("Invalid mode. Choose 'train' or 'infer'.")

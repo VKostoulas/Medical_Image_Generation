@@ -16,14 +16,31 @@ def load_config(config_path="config.yaml"):
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Python Project Configuration")
+
     # Required arguments
     parser.add_argument("--mode", required=True, type=str, help="Mode of operation (e.g., train, infer)")
     parser.add_argument("--model", required=True, type=str, help="Path to the model file")
+    parser.add_argument("--task", required=True, type=str, help="Task identifier")
     parser.add_argument("--data_path", required=True, type=str, help="Path to the data")
     parser.add_argument("--save_path", required=True, type=str, help="Path to save outputs")
-    # Optional arguments (no defaults here)
-    parser.add_argument("--center_crop_size", nargs=3, type=int, help="Center crop size")
-    parser.add_argument("--resized_size", nargs=3, type=int, help="Resized size")
+
+    # Optional arguments (no defaults)
+    parser.add_argument("--splitting", nargs=2, type=float, help="Split ratios for train, val")
+    parser.add_argument("--channels", nargs='+', type=int, help="List of channel indices or None")
+
+    parser.add_argument("--patch_size", nargs=3, type=int, help="Center crop size")
+    parser.add_argument("--resize_shape", nargs=3, type=int, help="Resized size")
+    parser.add_argument("--elastic", type=lambda x: x.lower() == 'true', help="Enable elastic transformations")
+    parser.add_argument("--scaling", type=lambda x: x.lower() == 'true', help="Enable scaling transformations")
+    parser.add_argument("--rotation", type=lambda x: x.lower() == 'true', help="Enable rotation transformations")
+    parser.add_argument("--gaussian_noise", type=lambda x: x.lower() == 'true', help="Enable Gaussian noise")
+    parser.add_argument("--gaussian_blur", type=lambda x: x.lower() == 'true', help="Enable Gaussian blur")
+    parser.add_argument("--brightness", type=lambda x: x.lower() == 'true', help="Enable brightness adjustment")
+    parser.add_argument("--contrast", type=lambda x: x.lower() == 'true', help="Enable contrast adjustment")
+    parser.add_argument("--gamma", type=lambda x: x.lower() == 'true', help="Enable gamma adjustment")
+    parser.add_argument("--mirror", type=lambda x: x.lower() == 'true', help="Enable mirroring")
+    parser.add_argument("--dummy_2D", type=lambda x: x.lower() == 'true', help="Enable dummy 2D mode")
+
     parser.add_argument("--batch_size", type=int, help="Batch size")
     parser.add_argument("--n_train_timesteps", type=int, help="Number of training timesteps")
     parser.add_argument("--n_infer_timesteps", type=int, help="Number of inference timesteps")
@@ -31,19 +48,19 @@ def parse_arguments():
     parser.add_argument("--n_epochs", type=int, help="Number of epochs")
     parser.add_argument("--val_interval", type=int, help="Validation interval")
     parser.add_argument("--learning_rate", type=float, help="Learning rate")
+
     parser.add_argument("--spatial_dims", type=int, help="Spatial dimensions")
     parser.add_argument("--in_channels", type=int, help="Number of input channels")
     parser.add_argument("--out_channels", type=int, help="Number of output channels")
     parser.add_argument("--num_channels", nargs='+', type=int, help="List of channel numbers for the model")
-    parser.add_argument("--attention_levels", nargs='+', type=lambda x: x.lower() == 'true',
-                        help="List of attention levels")
+    parser.add_argument("--attention_levels", nargs='+', type=lambda x: x.lower() == 'true', help="List of attention levels")
     parser.add_argument("--num_head_channels", nargs='+', type=int, help="List of head channel numbers")
     parser.add_argument("--num_res_blocks", type=int, help="Number of residual blocks")
+
     parser.add_argument("--progress_bar", type=lambda x: x.lower() == 'true', help="Use progress bars")
     parser.add_argument("--output_mode", type=str, help="Output mode")
     parser.add_argument("--save_model", type=lambda x: x.lower() == 'true', help="Whether to save the model")
-    parser.add_argument("--save_graph", type=lambda x: x.lower() == 'true',
-                        help="Whether to save the computation graph")
+    parser.add_argument("--save_graph", type=lambda x: x.lower() == 'true', help="Whether to save the computation graph")
     parser.add_argument("--save_plots", type=lambda x: x.lower() == 'true', help="Whether to save plots")
     parser.add_argument("--save_profile", type=lambda x: x.lower() == 'true', help="Whether to save the profile")
 
@@ -51,14 +68,41 @@ def parse_arguments():
 
 
 def update_config_with_args(config, args):
+    config["task"] = str(args.task)
     config["data_path"] = str(args.data_path)
     config["save_path"] = str(args.save_path)
 
     # Update config only if arguments were provided
-    if args.center_crop_size is not None:
-        config["center_crop_size"] = args.center_crop_size
-    if args.resized_size is not None:
-        config["resized_size"] = args.resized_size
+    if args.splitting is not None:
+        config["splitting"] = args.splitting
+    if args.channels is not None:
+        config["channels"] = args.channels
+
+    if args.patch_size is not None:
+        config["transformations"]["patch_size"] = args.patch_size
+    if args.resize_shape is not None:
+        config["transformations"]["resize_shape"] = args.resize_shape
+    if args.elastic is not None:
+        config["transformations"]["elastic"] = args.elastic
+    if args.scaling is not None:
+        config["transformations"]["scaling"] = args.scaling
+    if args.rotation is not None:
+        config["transformations"]["rotation"] = args.rotation
+    if args.gaussian_noise is not None:
+        config["transformations"]["gaussian_noise"] = args.gaussian_noise
+    if args.gaussian_blur is not None:
+        config["transformations"]["gaussian_blur"] = args.gaussian_blur
+    if args.brightness is not None:
+        config["transformations"]["brightness"] = args.brightness
+    if args.contrast is not None:
+        config["transformations"]["contrast"] = args.contrast
+    if args.gamma is not None:
+        config["transformations"]["gamma"] = args.gamma
+    if args.mirror is not None:
+        config["transformations"]["mirror"] = args.mirror
+    if args.dummy_2D is not None:
+        config["transformations"]["dummy_2D"] = args.dummy_2D
+
     if args.batch_size is not None:
         config["batch_size"] = args.batch_size
     if args.n_train_timesteps is not None:
@@ -73,6 +117,7 @@ def update_config_with_args(config, args):
         config["val_interval"] = args.val_interval
     if args.learning_rate is not None:
         config["learning_rate"] = args.learning_rate
+
     if args.spatial_dims is not None:
         config["model_params"]["spatial_dims"] = args.spatial_dims
     if args.in_channels is not None:
@@ -87,6 +132,7 @@ def update_config_with_args(config, args):
         config["model_params"]["num_head_channels"] = args.num_head_channels
     if args.num_res_blocks is not None:
         config["model_params"]["num_res_blocks"] = args.num_res_blocks
+
     if args.progress_bar is not None:
         config["progress_bar"] = args.progress_bar
     if args.output_mode is not None:
@@ -110,14 +156,31 @@ def validate_and_cast_config(config):
     Raises:
         ValueError: If any configuration value does not meet the expected criteria.
     """
-    # Cast flat parameters and validate
-    config["center_crop_size"] = tuple(config["center_crop_size"])
-    if len(config["center_crop_size"]) != 3 or not all(isinstance(x, int) for x in config["center_crop_size"]):
-        raise ValueError("center_crop_size must be a tuple of 3 integers.")
+    # Ensure the splitting ratios sum to 1
+    config["splitting"] = tuple(config["splitting"])
+    if sum(config["splitting"]) != 1.0:
+        raise ValueError("Splitting ratios must sum to 1.")
 
-    config["resized_size"] = tuple(config["resized_size"])
-    if len(config["resized_size"]) != 3 or not all(isinstance(x, int) for x in config["resized_size"]):
-        raise ValueError("resized_size must be a tuple of 3 integers.")
+    if config["channels"] is not None:
+        if not isinstance(config["channels"], list) or not all(
+                isinstance(ch, int) and ch >= 0 for ch in config["channels"]):
+            raise ValueError("channels must be a list of non-negative integers or None.")
+
+    # Cast flat parameters and validate
+    config["transformations"]["patch_size"] = tuple(config["transformations"]["patch_size"])
+    if len(config["transformations"]["patch_size"]) != 3 or not all(isinstance(x, int) for x in config["transformations"]["patch_size"]):
+        raise ValueError("patch_size must be a tuple of 3 integers.")
+
+    config["transformations"]["resize_shape"] = tuple(config["transformations"]["resize_shape"])
+    if len(config["transformations"]["resize_shape"]) != 3 or not all(isinstance(x, int) for x in config["transformations"]["resize_shape"]):
+        raise ValueError("resize_shape must be a tuple of 3 integers.")
+
+    for key in [
+        "elastic", "scaling", "rotation", "gaussian_noise",
+        "gaussian_blur", "brightness", "contrast", "gamma",
+        "mirror", "dummy_2D"
+    ]:
+        config["transformations"][key] = bool(config["transformations"][key])
 
     config["batch_size"] = int(config["batch_size"])
     if config["batch_size"] <= 0:
@@ -189,6 +252,7 @@ def validate_and_cast_config(config):
     return config
 
 
+
 def print_configuration(config, mode, model, space_from_start=40):
     """
     Print the mode, model, and configuration parameters in a perfectly aligned format.
@@ -218,20 +282,19 @@ def print_configuration(config, mode, model, space_from_start=40):
     # Print the Mode, Model, and Data Path
     print(f"Mode{' ' * (space_from_start - len('Mode'))}{mode}")
     print(f"Model{' ' * (space_from_start - len('Model'))}{model}")
+    print(f"Task{' ' * (space_from_start - len('Task'))}{config['task']}")
     print(f"Data Path{' ' * (space_from_start - len('Data Path'))}{config['data_path']}")
     print(f"Save Path{' ' * (space_from_start - len('Save Path'))}{config['save_path']}")
     print("\nParameters:\n" + "-" * (space_from_start * 3))
 
     # Print each parameter with aligned values
-    for i, (key, value) in enumerate(sorted(flat_config.items())):
-        if key not in ["data_path", "save_path"]:  # Skip already printed keys
+    for i, (key, value) in enumerate(flat_config.items()):
+        if key not in ["task", "data_path", "save_path"]:  # Skip already printed keys
             spaces = " " * (space_from_start - len(key))  # Calculate spaces for alignment
-            if i == len(flat_config) - 1:
+            if i == len(flat_config) - 4:
                 print(f"{key}{spaces}{value}\n{'=' * (space_from_start * 3)}")
             else:
                 print(f"{key}{spaces}{value}")
-
-    # print("=" * (space_from_start * 3))
 
 
 def create_save_path_dict(config):
