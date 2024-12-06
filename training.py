@@ -54,30 +54,30 @@ def train_ddpm(config, train_loader, val_loader, device, save_dict):
         start = time.time()
         model.train()
         epoch_loss = 0
-        progress_bar = tqdm(enumerate(train_loader), total=len(train_loader), ncols=70, disable=disable_prog_bar)
-        progress_bar.set_description(f"Epoch {epoch}")
-        for step, batch in progress_bar:
-            images = batch["image"].to(device)
-            optimizer.zero_grad(set_to_none=True)
+        with tqdm(enumerate(train_loader), total=len(train_loader), ncols=70, disable=disable_prog_bar) as progress_bar:
+            progress_bar.set_description(f"Epoch {epoch}")
+            for step, batch in progress_bar:
+                images = batch["image"].to(device)
+                optimizer.zero_grad(set_to_none=True)
 
-            with autocast(enabled=True):
-                # Generate random noise
-                noise = torch.randn_like(images).to(device)
-                # Create timesteps
-                timesteps = torch.randint(0, inferer.scheduler.num_train_timesteps, (images.shape[0],),
-                                          device=images.device).long()
-                # Get model prediction
-                noise_pred = inferer(inputs=images, diffusion_model=model, noise=noise, timesteps=timesteps)
-                loss = F.mse_loss(noise_pred.float(), noise.float())
+                with autocast(enabled=True):
+                    # Generate random noise
+                    noise = torch.randn_like(images).to(device)
+                    # Create timesteps
+                    timesteps = torch.randint(0, inferer.scheduler.num_train_timesteps, (images.shape[0],),
+                                              device=images.device).long()
+                    # Get model prediction
+                    noise_pred = inferer(inputs=images, diffusion_model=model, noise=noise, timesteps=timesteps)
+                    loss = F.mse_loss(noise_pred.float(), noise.float())
 
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
 
-            epoch_loss += loss.item()
+                epoch_loss += loss.item()
 
-            progress_bar.set_postfix({"loss": epoch_loss / (step + 1)})
-        epoch_loss_list.append(epoch_loss / (step + 1))
+                progress_bar.set_postfix({"loss": epoch_loss / (step + 1)})
+            epoch_loss_list.append(epoch_loss / (step + 1))
 
         # Log epoch loss
         if disable_prog_bar:
@@ -89,19 +89,21 @@ def train_ddpm(config, train_loader, val_loader, device, save_dict):
             start = time.time()
             model.eval()
             val_epoch_loss = 0
-            for step, batch in enumerate(val_loader):
-                images = batch["image"].to(device)
-                noise = torch.randn_like(images).to(device)
-                with torch.no_grad():
-                    with autocast(enabled=True):
-                        timesteps = torch.randint(0, inferer.scheduler.num_train_timesteps, (images.shape[0],),
-                                                  device=images.device).long()
-                        # Get model prediction
-                        noise_pred = inferer(inputs=images, diffusion_model=model, noise=noise, timesteps=timesteps)
-                        val_loss = F.mse_loss(noise_pred.float(), noise.float())
+            with tqdm(enumerate(val_loader), total=len(val_loader), ncols=70,
+                      disable=disable_prog_bar) as val_progress_bar:
+                for step, batch in val_progress_bar:
+                    images = batch["image"].to(device)
+                    noise = torch.randn_like(images).to(device)
+                    with torch.no_grad():
+                        with autocast(enabled=True):
+                            timesteps = torch.randint(0, inferer.scheduler.num_train_timesteps, (images.shape[0],),
+                                                      device=images.device).long()
+                            # Get model prediction
+                            noise_pred = inferer(inputs=images, diffusion_model=model, noise=noise, timesteps=timesteps)
+                            val_loss = F.mse_loss(noise_pred.float(), noise.float())
 
-                val_epoch_loss += val_loss.item()
-                progress_bar.set_postfix({"val_loss": val_epoch_loss / (step + 1)})
+                    val_epoch_loss += val_loss.item()
+                    val_progress_bar.set_postfix({"val_loss": val_epoch_loss / (step + 1)})
             val_epoch_loss_list.append(val_epoch_loss / (step + 1))
 
             # Log validation loss

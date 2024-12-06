@@ -8,14 +8,16 @@ can take a colossal amount of memory) and you know exactly your architecture...
 
 ## Requirements
 
-- python 3.9
+- python 3.9.17, cuda 11.8
 
-- Install pytorch following the official [pytorch 
-installation guide](https://pytorch.org/get-started/locally/).
+- You can try installing the requirements.txt, but if this doesn't work:
 
-- Install the following libraries with pip:
-  - pip install pyyaml matplotlib tqdm nibabel scikit-image monai 
-  monai-generative nnunet
+  - Install pytorch following the official [pytorch 
+  installation guide](https://pytorch.org/get-started/locally/).
+
+  - Install the following libraries with pip:
+    - pip install pyyaml matplotlib tqdm nibabel scikit-image monai 
+    monai-generative nnunet
 
 
 ## Usage Instructions
