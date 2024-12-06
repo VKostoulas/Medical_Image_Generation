@@ -3,15 +3,15 @@ channels: [1]
 transformations:
   patch_size: [160, 200, 155]
   resize_shape: [64, 64 ,64]
-  elastic: False
+  elastic: false
   scaling: true
   rotation: true
-  gaussian_noise: False
-  gaussian_blur: False
-  brightness: False
-  contrast: False
-  gamma: False
-  mirror: False
+  gaussian_noise: false
+  gaussian_blur: false
+  brightness: false
+  contrast: false
+  gamma: false
+  mirror: false
   dummy_2D: false
 
 batch_size: 4
@@ -31,7 +31,7 @@ model_params:
   num_head_channels: [0, 0, 256]
   num_res_blocks: 2
 
-progress_bar: False
+progress_bar: false
 output_mode: "verbose"
 save_model: false
 save_graph: false
