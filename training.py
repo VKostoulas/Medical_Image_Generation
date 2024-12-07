@@ -132,7 +132,8 @@ def train_ddpm(config, train_loader, val_loader, device, save_dict):
                     plt.figure(figsize=(2, 2))
                     # Access the specific slice
                     slice_image = image[0, 0, :, :, slice_idx].cpu()
-                    plt.imshow(slice_image, vmin=0, vmax=1, cmap="gray")
+                    normalized_slice = (slice_image - slice_image.min()) / (slice_image.max() - slice_image.min())
+                    plt.imshow(normalized_slice, vmin=0, vmax=1, cmap="gray")
                     plt.tight_layout()
                     plt.axis("off")
 
