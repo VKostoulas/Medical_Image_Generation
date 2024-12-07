@@ -114,7 +114,8 @@ def train_ddpm(config, train_loader, val_loader, device, save_dict):
                       f"Validation Loss: {val_epoch_loss / len(val_loader):.4f}")
 
             # Sampling image during training
-            image = torch.randn((1, 1) + config['transformations']['resize_shape'])
+            img_shape = config['transformations']['resize_shape'] if config['transformations']['resize_shape'] else config['transformations']['patch_size']
+            image = torch.randn((1, 1) + img_shape)
             image = image.to(device)
             scheduler.set_timesteps(num_inference_steps=config['n_infer_timesteps'])
             with autocast(enabled=True):

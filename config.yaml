@@ -2,7 +2,7 @@ splitting: [0.8, 0.2]
 channels: [1]
 transformations:
   patch_size: [160, 200, 155]
-  resize_shape: [96, 96, 96]
+  resize_shape: null # [96, 96, 96]
   elastic: false
   scaling: true
   rotation: true
@@ -14,7 +14,7 @@ transformations:
   mirror: false
   dummy_2D: false
 
-batch_size: 2
+batch_size: 1
 n_train_timesteps: 1000
 n_infer_timesteps: 1000
 time_scheduler: "scaled_linear_beta"
@@ -26,9 +26,9 @@ model_params:
   spatial_dims: 3
   in_channels: 1
   out_channels: 1
-  num_channels: [128, 128, 128, 256]
-  attention_levels: [false, false, false, true]
-  num_head_channels: [0, 0, 0, 256]
+  num_channels: [64, 128, 256]
+  attention_levels: [false, false, true]
+  num_head_channels: [0, 0, 256]
   num_res_blocks: 2
 
 progress_bar: false

@@ -169,9 +169,10 @@ def validate_and_cast_config(config):
     if len(config["transformations"]["patch_size"]) != 3 or not all(isinstance(x, int) for x in config["transformations"]["patch_size"]):
         raise ValueError("patch_size must be a tuple of 3 integers.")
 
-    config["transformations"]["resize_shape"] = tuple(config["transformations"]["resize_shape"])
-    if len(config["transformations"]["resize_shape"]) != 3 or not all(isinstance(x, int) for x in config["transformations"]["resize_shape"]):
-        raise ValueError("resize_shape must be a tuple of 3 integers.")
+    if config["transformations"]["resize_shape"]:
+        config["transformations"]["resize_shape"] = tuple(config["transformations"]["resize_shape"])
+        if len(config["transformations"]["resize_shape"]) != 3 or not all(isinstance(x, int) for x in config["transformations"]["resize_shape"]):
+            raise ValueError("resize_shape must be a tuple of 3 integers.")
 
     for key in [
         "elastic", "scaling", "rotation", "gaussian_noise",
