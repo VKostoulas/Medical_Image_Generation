@@ -107,12 +107,6 @@ def train_ddpm(config, train_loader, val_loader, device, save_dict):
                     val_progress_bar.set_postfix({"val_loss": val_epoch_loss / (step + 1)})
             val_epoch_loss_list.append(val_epoch_loss / (step + 1))
 
-            # Log validation loss
-            if disable_prog_bar:
-                end = time.time() - start
-                print(f"Epoch {epoch} - Time: {time.strftime('%H:%M:%S', time.gmtime(end))} - "
-                      f"Validation Loss: {val_epoch_loss / len(val_loader):.4f}")
-
             # Sampling image during training
             img_shape = config['transformations']['resize_shape'] if config['transformations']['resize_shape'] else config['transformations']['patch_size']
             image = torch.randn((1, 1) + img_shape)
@@ -120,6 +114,12 @@ def train_ddpm(config, train_loader, val_loader, device, save_dict):
             scheduler.set_timesteps(num_inference_steps=config['n_infer_timesteps'])
             with autocast(enabled=True):
                 image = inferer.sample(input_noise=image, diffusion_model=model, scheduler=scheduler, verbose=not disable_prog_bar)
+
+            # Log validation loss
+            if disable_prog_bar:
+                end = time.time() - start
+                print(f"Epoch {epoch} - Time: {time.strftime('%H:%M:%S', time.gmtime(end))} - "
+                      f"Validation Loss: {val_epoch_loss / len(val_loader):.4f}")
 
             if config['save_plots']:
                 # Create a directory for the current epoch
