@@ -126,11 +126,11 @@ def train_ddpm(config, train_loader, val_loader, device, save_dict):
                 os.makedirs(epoch_dir, exist_ok=True)
 
                 # Get the number of slices along the desired axis (e.g., the 4th dimension)
-                num_slices = image.shape[4]  # Assuming the image is [batch, channel, x, y, z]
+                num_slices = image.shape[2]  # Assuming the image is [batch, channel, x, y, z]
                 image_min, image_max = image.cpu().min(), image.cpu().max()
                 for slice_idx in range(num_slices):
                     plt.figure(figsize=(2, 2))
-                    slice_image = image[0, 0, :, :, slice_idx].cpu()
+                    slice_image = image[0, 0, slice_idx, :, :].cpu()
                     # Normalize image slice in 0-1 based on whole volume min and max
                     normalized_slice = (slice_image - image_min) / (image_max - image_min)
                     plt.imshow(normalized_slice, vmin=0, vmax=1, cmap="gray")
