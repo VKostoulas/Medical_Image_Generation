@@ -55,7 +55,7 @@ def train_ddpm(config, train_loader, val_loader, device, save_dict):
         start = time.time()
         model.train()
         epoch_loss = 0
-        with tqdm(enumerate(train_loader), total=len(train_loader), ncols=70, disable=disable_prog_bar, file=sys.stderr) as progress_bar:
+        with tqdm(enumerate(train_loader), total=len(train_loader), ncols=70, disable=disable_prog_bar, file=sys.stdout) as progress_bar:
             progress_bar.set_description(f"Epoch {epoch}")
             for step, batch in progress_bar:
                 images = batch["image"].to(device)
@@ -91,7 +91,7 @@ def train_ddpm(config, train_loader, val_loader, device, save_dict):
             model.eval()
             val_epoch_loss = 0
             with tqdm(enumerate(val_loader), total=len(val_loader), ncols=70,
-                      disable=disable_prog_bar, file=sys.stderr) as val_progress_bar:
+                      disable=disable_prog_bar, file=sys.stdout) as val_progress_bar:
                 for step, batch in val_progress_bar:
                     images = batch["image"].to(device)
                     noise = torch.randn_like(images).to(device)
