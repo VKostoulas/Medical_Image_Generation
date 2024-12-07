@@ -13,8 +13,8 @@ def main():
     config = validate_and_cast_config(config)
     mode = args.mode
     model = args.model
-    save_dict = create_save_path_dict(config)
-    print_configuration(config, mode, model)
+    save_dict, save_path = create_save_path_dict(config)
+    print_configuration(config, mode, model, save_path)
 
     # Step 6: Use the mode, model, and configuration in your script logic
     if mode == "train":

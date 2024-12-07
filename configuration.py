@@ -21,8 +21,6 @@ def parse_arguments():
     parser.add_argument("--mode", required=True, type=str, help="Mode of operation (e.g., train, infer)")
     parser.add_argument("--model", required=True, type=str, help="Path to the model file")
     parser.add_argument("--task", required=True, type=str, help="Task identifier")
-    parser.add_argument("--data_path", required=True, type=str, help="Path to the data")
-    parser.add_argument("--save_path", required=True, type=str, help="Path to save outputs")
 
     # Optional arguments (no defaults)
     parser.add_argument("--splitting", nargs=2, type=float, help="Split ratios for train, val")
@@ -69,8 +67,8 @@ def parse_arguments():
 
 def update_config_with_args(config, args):
     config["task"] = str(args.task)
-    config["data_path"] = str(args.data_path)
-    config["save_path"] = str(args.save_path)
+    config["data_path"] = str(os.getenv('DATAPATH'))
+    config["save_path"] = str(os.getenv('SAVEPATH'))
 
     # Update config only if arguments were provided
     if args.splitting is not None:
@@ -252,51 +250,6 @@ def validate_and_cast_config(config):
     return config
 
 
-
-def print_configuration(config, mode, model, space_from_start=40):
-    """
-    Print the mode, model, and configuration parameters in a perfectly aligned format.
-    Args:
-        config (dict): Configuration dictionary.
-        mode (str): Mode of operation (e.g., "train").
-        model (str): Model type (e.g., "ddpm").
-        space_from_start (int): Column where values should start.
-    """
-    def flatten_dict(d, parent_key="", sep="."):
-        """Flatten nested dictionaries for better display."""
-        items = []
-        for k, v in d.items():
-            new_key = f"{parent_key}{sep}{k}" if parent_key else k
-            if isinstance(v, dict):
-                items.extend(flatten_dict(v, new_key, sep=sep).items())
-            else:
-                items.append((new_key, v))
-        return dict(items)
-
-    flat_config = flatten_dict(config)
-
-    # Print header with mode and model
-    header = f"{'Configuration Summary'.center(space_from_start * 3)}\n"
-    print(header + "=" * (space_from_start * 3))
-
-    # Print the Mode, Model, and Data Path
-    print(f"Mode{' ' * (space_from_start - len('Mode'))}{mode}")
-    print(f"Model{' ' * (space_from_start - len('Model'))}{model}")
-    print(f"Task{' ' * (space_from_start - len('Task'))}{config['task']}")
-    print(f"Data Path{' ' * (space_from_start - len('Data Path'))}{config['data_path']}")
-    print(f"Save Path{' ' * (space_from_start - len('Save Path'))}{config['save_path']}")
-    print("\nParameters:\n" + "-" * (space_from_start * 3))
-
-    # Print each parameter with aligned values
-    for i, (key, value) in enumerate(flat_config.items()):
-        if key not in ["task", "data_path", "save_path"]:  # Skip already printed keys
-            spaces = " " * (space_from_start - len(key))  # Calculate spaces for alignment
-            if i == len(flat_config) - 4:
-                print(f"{key}{spaces}{value}\n{'=' * (space_from_start * 3)}")
-            else:
-                print(f"{key}{spaces}{value}")
-
-
 def create_save_path_dict(config):
     """
     Create a dictionary with folder names and save paths for various outputs (e.g., checkpoints, graphs, etc.).
@@ -314,7 +267,7 @@ def create_save_path_dict(config):
 
     # If no saving is enabled, return the dictionary without creating directories
     if not any(save_dict.values()):
-        return save_dict
+        return save_dict, ''
 
     # Generate a timestamped save directory
     timestamp = datetime.now().strftime("%Y_%m_%d-%I_%M_%S_%p")
@@ -335,7 +288,54 @@ def create_save_path_dict(config):
         else:
             save_dict[dir_name] = False
 
-    return save_dict
+    return save_dict, save_path
+
+
+def print_configuration(config, mode, model, save_path, space_from_start=40):
+    """
+    Print the mode, model, and configuration parameters in a perfectly aligned format.
+    Args:
+        config (dict): Configuration dictionary.
+        mode (str): Mode of operation (e.g., "train").
+        model (str): Model type (e.g., "ddpm").
+        save_path (str):
+        space_from_start (int): Column where values should start.
+    """
+    def flatten_dict(d, parent_key="", sep="."):
+        """Flatten nested dictionaries for better display."""
+        items = []
+        for k, v in d.items():
+            new_key = f"{parent_key}{sep}{k}" if parent_key else k
+            if isinstance(v, dict):
+                items.extend(flatten_dict(v, new_key, sep=sep).items())
+            else:
+                items.append((new_key, v))
+        return dict(items)
+
+    flat_config = flatten_dict(config)
+
+    # Print header with mode and model
+    header = f"{'Configuration Summary'.center(space_from_start * 3)}\n"
+    print(header + "=" * (space_from_start * 3))
+
+    data_path = os.path.join(config['data_path'], config['task'], 'imagesTr')
+
+    # Print the Mode, Model, and Data Path
+    print(f"Mode{' ' * (space_from_start - len('Mode'))}{mode}")
+    print(f"Model{' ' * (space_from_start - len('Model'))}{model}")
+    print(f"Task{' ' * (space_from_start - len('Task'))}{config['task']}")
+    print(f"Data Path{' ' * (space_from_start - len('Data Path'))}{data_path}")
+    print(f"Save Path{' ' * (space_from_start - len('Save Path'))}{save_path}")
+    print("\nParameters:\n" + "-" * (space_from_start * 3))
+
+    # Print each parameter with aligned values
+    for i, (key, value) in enumerate(flat_config.items()):
+        if key not in ["task", "data_path", "save_path"]:  # Skip already printed keys
+            spaces = " " * (space_from_start - len(key))  # Calculate spaces for alignment
+            if i == len(flat_config) - 4:
+                print(f"{key}{spaces}{value}\n{'=' * (space_from_start * 3)}")
+            else:
+                print(f"{key}{spaces}{value}")
 
 
 def suppress_console_handlers():

@@ -1,27 +1,18 @@
 import os
-import tempfile
 import torch
 import glob
 import random
 import numpy as np
 import SimpleITK as sitk
-import torch.nn.functional as F
 
 from torch.utils.data import Dataset, DataLoader
-from monai.apps import DecathlonDataset
-from monai.data import DataLoader as MDataLoader
-from monai.transforms import (EnsureChannelFirstd, CenterSpatialCropd, Compose, Lambdad, LoadImaged, Resized,
-                              ScaleIntensityd)
 from batchgenerators.transforms.abstract_transforms import Compose
-from batchgenerators.transforms.channel_selection_transforms import DataChannelSelectionTransform, \
-    SegChannelSelectionTransform
 from batchgenerators.transforms.color_transforms import BrightnessMultiplicativeTransform, ContrastAugmentationTransform
 from batchgenerators.transforms.noise_transforms import GaussianNoiseTransform, GaussianBlurTransform
 from batchgenerators.transforms.color_transforms import GammaTransform
 from batchgenerators.transforms.spatial_transforms import SpatialTransform, MirrorTransform, ResizeTransform
-from batchgenerators.transforms.utility_transforms import RemoveLabelTransform, RenameTransform, NumpyToTensor
 from nnunet.training.data_augmentation.custom_transforms import Convert3DTo2DTransform, Convert2DTo3DTransform, \
-    MaskTransform, ConvertSegmentationToRegionsTransform
+    ConvertSegmentationToRegionsTransform
 
 
 def get_data_loaders(config):
@@ -36,34 +27,6 @@ def get_data_loaders(config):
     train_loader = DataLoader(train_ds, shuffle=True, prefetch_factor=config['batch_size'], **loader_args)
     val_loader = DataLoader(val_ds, shuffle=False, prefetch_factor=config['batch_size'], **loader_args)
     return train_loader, val_loader
-
-
-# def get_data_loaders(config):
-#     print(config['data_path'])
-#     print(tempfile.gettempdir())
-#
-#     data_transform = Compose(
-#         [
-#             LoadImaged(keys=["image"]),
-#             Lambdad(keys="image", func=lambda x: x[:, :, :, 1]),
-#             EnsureChannelFirstd(keys=["image"], channel_dim="no_channel"),
-#             ScaleIntensityd(keys=["image"]),
-#             CenterSpatialCropd(keys=["image"], roi_size=config['center_crop_size']),
-#             Resized(keys=["image"], spatial_size=config['resized_size']),
-#         ]
-#     )
-#     progress = False if (config['output_mode'] == 'log' or not config['progress_bar']) else True
-#     train_ds = DecathlonDataset(root_dir=config['data_path'], task="Task01_BrainTumour", transform=data_transform,
-#                                 section="training", download=True, progress=progress)
-#     train_loader = MDataLoader(train_ds, batch_size=config['batch_size'], shuffle=True, num_workers=8, persistent_workers=True,
-#                               pin_memory=True)
-#     val_ds = DecathlonDataset(root_dir=config['data_path'], task="Task01_BrainTumour", transform=data_transform,
-#                               section="validation", download=True, progress=progress)
-#     val_loader = MDataLoader(val_ds, batch_size=config['batch_size'], shuffle=False, num_workers=8, persistent_workers=True,
-#                             pin_memory=True)
-#     return train_loader, val_loader
-
-
 
 
 class MedicalDataset(Dataset):
