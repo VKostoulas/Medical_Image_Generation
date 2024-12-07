@@ -121,14 +121,25 @@ def train_ddpm(config, train_loader, val_loader, device, save_dict):
                 image = inferer.sample(input_noise=image, diffusion_model=model, scheduler=scheduler, verbose=not disable_prog_bar)
 
             if config['save_plots']:
-                plt.figure(figsize=(2, 2))
-                plt.imshow(image[0, 0, :, :, 15].cpu(), vmin=0, vmax=1, cmap="gray")
-                plt.tight_layout()
-                plt.axis("off")
-                # Save the figure with the epoch as the filename
-                save_file = os.path.join(save_dict['plots'], f"epoch_{epoch}.png")
-                plt.savefig(save_file, dpi=300, bbox_inches='tight', pad_inches=0)
-                plt.close()  # Close the figure to free memory
+                # Create a directory for the current epoch
+                epoch_dir = os.path.join(save_dict['plots'], f"epoch_{epoch}")
+                os.makedirs(epoch_dir, exist_ok=True)
+
+                # Get the number of slices along the desired axis (e.g., the 4th dimension)
+                num_slices = image.shape[4]  # Assuming the image is [batch, channel, x, y, z]
+
+                for slice_idx in range(num_slices):
+                    plt.figure(figsize=(2, 2))
+                    # Access the specific slice
+                    slice_image = image[0, 0, :, :, slice_idx].cpu()
+                    plt.imshow(slice_image, vmin=0, vmax=1, cmap="gray")
+                    plt.tight_layout()
+                    plt.axis("off")
+
+                    # Save the slice with its index in the epoch folder
+                    slice_file = os.path.join(epoch_dir, f"slice_{slice_idx}.png")
+                    plt.savefig(slice_file, dpi=300, bbox_inches='tight', pad_inches=0)
+                    plt.close()  # Close the figure to free memory
 
     total_time = time.time() - total_start
     print(f"train completed, total time: {total_time}.")
