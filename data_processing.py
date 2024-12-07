@@ -186,7 +186,10 @@ def define_nnunet_transformations(params, validation=False, border_val_seg=-1, r
         return tr_transforms
     else:
         # val_transforms = [RemoveLabelTransform(-1, 0)]
-        val_transforms = []
+        val_transforms = [SpatialTransform(
+            params.get("patch_size"), do_elastic_deform=False, do_rotation=False, do_scale=False,
+            border_cval_seg=border_val_seg, order_seg=1, random_crop=False
+        )]
 
         if params.get("resize_shape") is not None:
             val_transforms.append(ResizeTransform(params.get("resize_shape")))
