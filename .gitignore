@@ -2,17 +2,19 @@
 *
 
 # Allow specific files or directories
-!.gitignore
-!/configuration.py
-!/data_processing.py
-!/main.py
-!/requirements.txt
-!/training.py
-!/README.md
+!.gitignore              # The .gitignore file itself
+!setup.py                # The packaging configuration
+!requirements.txt        # Dependency file
+!README.md               # Project documentation
+
+# Include the Python package directory
+!medimgen/
+!medimgen/__init__.py
+!medimgen/*.py           # All Python files in the package
 
 # Allow the folder
-!configs/
+!medimgen/configs/
 # Ignore all files in the folder
-configs/*
+medimgen/configs/*
 # Allow the specific file
-!/configs/config.yaml
+!/medimgen/configs/config.yaml

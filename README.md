@@ -7,22 +7,39 @@ Go train your model! Assuming that you have enough GPU memory (these 3D models
 can take a colossal amount of memory) and you know exactly your architecture... Or
 enjoy hyperparameter tuning!
 
-## Requirements
+## Installation
 
 - python 3.9.17, cuda 11.8, and at least one faaat GPU
+- pip install medimgen
 
-- You can try installing the requirements.txt, but if this doesn't work:
 
-  - Install pytorch following the official [pytorch 
-  installation guide](https://pytorch.org/get-started/locally/).
+[//]: # (- If pip doesn't work:)
 
-  - Install the following libraries with pip:
-    - pip install pyyaml matplotlib tqdm nibabel scikit-image monai 
-    monai-generative nnunet
+[//]: # (  - Clone the repository )
 
-- (Optional) You can install these libraries also for jupyter notebooks and
-interactive visualization:
-  - pip install jupyter matplotlib ipywidgets ipympl notebook tornado
+[//]: # (  - You can try installing the requirements.txt, but if this doesn't work:)
+
+[//]: # ()
+[//]: # (    - Install pytorch following the official [pytorch )
+
+[//]: # (    installation guide]&#40;https://pytorch.org/get-started/locally/&#41;.)
+
+[//]: # ()
+[//]: # (    - Install the following libraries with pip:)
+
+[//]: # (      - pip install pyyaml matplotlib tqdm nibabel scikit-image monai )
+
+[//]: # (      monai-generative nnunet)
+
+[//]: # ()
+[//]: # (  - &#40;Optional&#41; You can install these libraries also for jupyter notebooks and)
+
+[//]: # (  interactive visualization:)
+
+[//]: # (    - pip install jupyter matplotlib ipywidgets ipympl notebook tornado)
+
+[//]: # (  - run pip install -e . when you are in the main directory)
+ 
 
 ## Usage Instructions
 
@@ -46,32 +63,39 @@ nifti files (.nii.gz). All your datasets should be in the same folder for
 flexibility (in the DATAPATH), and the names of the dataset folders gives them a 
 unique *task* identifier.
 
+### Dataset normalization and histogram equalization
+
+If you want to first resample all the images to the median voxel spacing run:
+
+```bash
+normalize_dataset --task your_task
+```
+
+This will create a new folder called your_task_normalized. If you also want to 
+perform histogram equalization run:
+
+```bash
+normalize_dataset --task Task01_BrainTumour -intensity
+```
+
 ### Configuration
 All the global settings of the projects are stored in a configuration file. The 
 *config.yaml* file in the configs folder is a basic configuration. You can use this 
 without defining any configuration file, or create your own file and call it when 
-running the main.py (see next section). It is handy to store different configuration
-files for different experiments (e.g., one file for diffusion model and one for 
-latent diffusion model).
+running the main.py (see next section), but keep all the config files in the configs
+folder. It is handy to store different configuration files for different experiments 
+(e.g., one file for diffusion model and one for latent diffusion model).
 
 ### Training
 
-To train, simply run *main.py* with required arguments *mode* (train or sample),
-*model* (which generative model to use; currently only ddpm) and *task* (the task to 
-train your model on). You can also modify any parameter of the config file when 
-running main.py.
-
+Here is an example to train a Denoising Diffusion Probabilistic Model on the
+Brain Tumour dataset from Medical Segmentation Decathlon:
 Example:
+
 ```bash
-python main.py \
---mode train \
---model ddpm \
---task Task01_BrainTumour \
---config ddpm_config \
---output_mode log
+train_ddpm --task Task01_BrainTumour --config ddpm_config --output_mode log
 ```
-In the example we are training with a Denoising Diffusion Probabilistic Model on the
-Brain Tumour dataset from Medical Segmentation Decathlon, we are using a custom 
+we are using a custom 
 configuration file, and we are saving every output in a log file instead of printing 
 on screen.
 
