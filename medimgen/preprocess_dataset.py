@@ -90,6 +90,10 @@ def main():
         image_shapes.append(final_image.shape)
         if config["intensity"]:
             # Step 4: Adjust contrast
+            # TODO: Check https://github.com/jcreinhold/intensity-normalization/blob/master/tutorials/5min_tutorial.rst
+            #  section: Saving fit information for sample-based methods
+            #  or this https://github.com/sergivalverde/MRI_intensity_normalization/blob/master/Intensity%20normalization%20test.ipynb
+            #  implementation of https://onlinelibrary.wiley.com/doi/pdf/10.1002/%28SICI%291522-2594%28199912%2942%3A6%3C1072%3A%3AAID-MRM11%3E3.0.CO%3B2-M
             print("    Adjusting intensity...")
             # final_image = adjust_contrast(final_image)
 
