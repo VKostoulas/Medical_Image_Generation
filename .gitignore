@@ -10,7 +10,12 @@
 # Include the Python package directory
 !medimgen/
 !medimgen/__init__.py
-!medimgen/*.py           # All Python files in the package
+!medimgen/configuration.py
+!medimgen/data_processing.py
+!medimgen/equalize_and_normalize_dataset.py
+!medimgen/train_ddpm.py
+!medimgen/train_ldm.py
+!medimgen/train_vqgan.py
 
 # Allow the folder
 !medimgen/configs/
