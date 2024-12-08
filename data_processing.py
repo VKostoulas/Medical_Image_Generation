@@ -93,9 +93,13 @@ class MedicalDataset(Dataset):
         if len(image.shape) < 4:
             image = np.expand_dims(image, axis=0)  # add channel dimension
         # Z-score normalization
-        mean = np.mean(image, axis=(1, 2, 3), keepdims=True)  # Mean per channel
-        std = np.std(image, axis=(1, 2, 3), keepdims=True)  # Std per channel
-        image = (image - mean) / std
+        # mean = np.mean(image, axis=(1, 2, 3), keepdims=True)  # Mean per channel
+        # std = np.std(image, axis=(1, 2, 3), keepdims=True)  # Std per channel
+        # image = (image - mean) / std
+        # -1 1 normalization
+        min_val = np.min(image)
+        max_val = np.max(image)
+        image = 2 * (image - min_val) / (max_val - min_val) - 1
 
         image = np.expand_dims(image, axis=0)  # add batch dimension
         return image
