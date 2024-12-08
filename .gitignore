@@ -3,9 +3,9 @@
 
 # Allow specific files or directories
 !.gitignore              # The .gitignore file itself
-!setup.py                # The packaging configuration
 !requirements.txt        # Dependency file
 !README.md               # Project documentation
+!setup.py
 
 # Include the Python package directory
 !medimgen/
