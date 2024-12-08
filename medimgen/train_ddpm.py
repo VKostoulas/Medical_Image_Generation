@@ -112,16 +112,15 @@ def train_ddpm(config, train_loader, val_loader, device, save_dict):
 
                 # Get the number of slices along the desired axis (e.g., the 4th dimension)
                 num_slices = image.shape[2]  # Assuming the image is [batch, channel, x, y, z]
+                # Normalize whole volume to 0-1
                 image_min, image_max = image.cpu().min(), image.cpu().max()
+                normalized_image = (image.cpu() - image_min) / (image_max - image_min)
                 for slice_idx in range(num_slices):
                     plt.figure(figsize=(2, 2))
-                    slice_image = image[0, 0, slice_idx, :, :].cpu()
-                    # Normalize image slice in 0-1 based on whole volume min and max
-                    normalized_slice = (slice_image - image_min) / (image_max - image_min)
-                    plt.imshow(normalized_slice, vmin=0, vmax=1, cmap="gray")
+                    slice_image = normalized_image[0, 0, slice_idx, :, :]
+                    plt.imshow(slice_image, vmin=0, vmax=1, cmap="gray")
                     plt.tight_layout()
                     plt.axis("off")
-
                     # Save the slice with its index in the epoch folder
                     slice_file = os.path.join(epoch_dir, f"slice_{slice_idx}.png")
                     plt.savefig(slice_file, dpi=300, bbox_inches='tight', pad_inches=0)

@@ -92,22 +92,21 @@ class MedicalDataset(Dataset):
             image = image[self.channel_ids, ...]
         if len(image.shape) < 4:
             image = np.expand_dims(image, axis=0)  # add channel dimension
-        # Z-score normalization
-        # mean = np.mean(image, axis=(1, 2, 3), keepdims=True)  # Mean per channel
-        # std = np.std(image, axis=(1, 2, 3), keepdims=True)  # Std per channel
-        # image = (image - mean) / std
-        # -1 1 normalization
-        min_val = np.min(image)
-        max_val = np.max(image)
-        image = 2 * (image - min_val) / (max_val - min_val) - 1
-
         image = np.expand_dims(image, axis=0)  # add batch dimension
         return image
 
     def __getitem__(self, idx):
         name = self.ids[idx]
         image = self.load_image(name)
+        # scale to 0-1 for augmentations
+        min_val = np.min(image)
+        max_val = np.max(image)
+        image = (image - min_val) / (max_val - min_val)
         image = self.transform(image)
+        # scale to -1 1
+        min_val = np.min(image)
+        max_val = np.max(image)
+        image = 2 * (image - min_val) / (max_val - min_val) - 1
         image = torch.as_tensor(image).float()
         image = torch.squeeze(image, dim=0)
         image = image.contiguous()
