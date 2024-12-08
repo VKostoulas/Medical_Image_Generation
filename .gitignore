@@ -3,7 +3,6 @@
 
 # Allow specific files or directories
 !.gitignore
-!/config.yaml
 !/configuration.py
 !/data_processing.py
 !/main.py
@@ -11,3 +10,9 @@
 !/training.py
 !/README.md
 
+# Allow the folder
+!configs/
+# Ignore all files in the folder
+configs/*
+# Allow the specific file
+!/configs/config.yaml

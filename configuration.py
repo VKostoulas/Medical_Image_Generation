@@ -8,9 +8,10 @@ import yaml
 from datetime import datetime
 
 
-def load_config(config_path="config.yaml"):
+def load_config(config_name):
     """Load default configuration from a YAML file."""
-    with open(config_path, "r") as file:
+    conf_path = os.path.join('./configs', config_name + '.yaml') if config_name else "./configs/config.yaml"
+    with open(conf_path, "r") as file:
         return yaml.safe_load(file)
 
 
@@ -22,7 +23,9 @@ def parse_arguments():
     parser.add_argument("--model", required=True, type=str, help="Path to the model file")
     parser.add_argument("--task", required=True, type=str, help="Task identifier")
 
-    # Optional arguments (no defaults)
+    # Optional arguments
+    parser.add_argument("--config", type=str, help="Configuration file name")
+
     parser.add_argument("--splitting", nargs=2, type=float, help="Split ratios for train, val")
     parser.add_argument("--channels", nargs='+', type=int, help="List of channel indices or None")
 
@@ -69,6 +72,7 @@ def update_config_with_args(config, args):
     config["task"] = str(args.task)
     config["data_path"] = str(os.getenv('DATAPATH'))
     config["save_path"] = str(os.getenv('SAVEPATH'))
+    config["config"] = str(args.config)
 
     # Update config only if arguments were provided
     if args.splitting is not None:
@@ -325,15 +329,16 @@ def print_configuration(config, mode, model, save_path, space_from_start=40):
     print(f"Mode{' ' * (space_from_start - len('Mode'))}{mode}")
     print(f"Model{' ' * (space_from_start - len('Model'))}{model}")
     print(f"Task{' ' * (space_from_start - len('Task'))}{config['task']}")
+    print(f"Configuration File{' ' * (space_from_start - len('Configuration File'))}{config['config']}")
     print(f"Data Path{' ' * (space_from_start - len('Data Path'))}{data_path}")
     print(f"Save Path{' ' * (space_from_start - len('Save Path'))}{save_path}")
     print("\nParameters:\n" + "-" * (space_from_start * 3))
 
     # Print each parameter with aligned values
     for i, (key, value) in enumerate(flat_config.items()):
-        if key not in ["task", "data_path", "save_path"]:  # Skip already printed keys
+        if key not in ["task", "config", "data_path", "save_path"]:  # Skip already printed keys
             spaces = " " * (space_from_start - len(key))  # Calculate spaces for alignment
-            if i == len(flat_config) - 4:
+            if i == len(flat_config) - 5:
                 print(f"{key}{spaces}{value}\n{'=' * (space_from_start * 3)}")
             else:
                 print(f"{key}{spaces}{value}")

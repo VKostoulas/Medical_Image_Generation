@@ -7,8 +7,8 @@ from training import train_model
 
 
 def main():
-    config = load_config()
     args = parse_arguments()
+    config = load_config(args.config)
     config = update_config_with_args(config, args)
     config = validate_and_cast_config(config)
     mode = args.mode

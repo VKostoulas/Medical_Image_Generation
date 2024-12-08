@@ -4,11 +4,12 @@
 Training and sampling with 2D or 3D image generation models on your dataset
 has never been that easy! Simply, create your dataset, and that's it!
 Go train your model! Assuming that you have enough GPU memory (these 3D models
-can take a colossal amount of memory) and you know exactly your architecture...
+can take a colossal amount of memory) and you know exactly your architecture... Or
+enjoy hyperparameter tuning!
 
 ## Requirements
 
-- python 3.9.17, cuda 11.8
+- python 3.9.17, cuda 11.8, and at least one faaat GPU
 
 - You can try installing the requirements.txt, but if this doesn't work:
 
@@ -46,9 +47,12 @@ flexibility (in the DATAPATH), and the names of the dataset folders gives them a
 unique *task* identifier.
 
 ### Configuration
-All the global settings of the projects are stored in the config.yaml file. Modify 
-the yaml file in your preference, or parse the modifications when running main.py
-(see next section).
+All the global settings of the projects are stored in a configuration file. The 
+*config.yaml* file in the configs folder is a basic configuration. You can use this 
+without defining any configuration file, or create your own file and call it when 
+running the main.py (see next section). It is handy to store different configuration
+files for different experiments (e.g., one file for diffusion model and one for 
+latent diffusion model).
 
 ### Training
 
@@ -62,11 +66,14 @@ Example:
 python main.py \
 --mode train \
 --model ddpm \
---task your_task \
+--task Task01_BrainTumour \
+--config ddpm_config \
 --output_mode log
 ```
-In the example we are training with a Denoising Diffusion Probabilistic Model, and 
-we are saving every output in a log file instead of printing on screen.
+In the example we are training with a Denoising Diffusion Probabilistic Model on the
+Brain Tumour dataset from Medical Segmentation Decathlon, we are using a custom 
+configuration file, and we are saving every output in a log file instead of printing 
+on screen.
 
 Running an experiment will create a directory in your save_path. Depending 
 on your configuration the following folders or files will be created: 
