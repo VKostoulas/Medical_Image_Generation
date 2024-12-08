@@ -21,10 +21,10 @@ def parse_arguments(description, args_mode):
 
     parser.add_argument("--task", required=True, type=str, help="Task identifier")
 
-    if args_mode == 'normalize_data':
+    if args_mode == 'preprocess_data':
         parser.add_argument("-intensity", action="store_true",
                             help="Enable normalization during the dataset processing.")
-    if args_mode != 'normalize_data':
+    if args_mode != 'preprocess_data':
         parser.add_argument("--config", type=str, help="Configuration file name")
         parser.add_argument("--splitting", nargs=2, type=float, help="Split ratios for train, val")
         parser.add_argument("--channels", nargs='+', type=int, help="List of channel indices or None")
@@ -59,7 +59,7 @@ def parse_arguments(description, args_mode):
         parser.add_argument("--num_head_channels", nargs='+', type=int, help="List of head channel numbers")
         parser.add_argument("--num_res_blocks", type=int, help="Number of residual blocks")
 
-    if args_mode != 'normalize_data':
+    if args_mode != 'preprocess_data':
         parser.add_argument("--progress_bar", type=lambda x: x.lower() == 'true', help="Use progress bars")
         parser.add_argument("--output_mode", type=str, help="Output mode")
         parser.add_argument("--save_model", type=lambda x: x.lower() == 'true', help="Whether to save the model")
@@ -298,7 +298,7 @@ def create_save_path_dict(config):
     return save_dict, save_path
 
 
-def print_configuration(config, mode, model, save_path, space_from_start=40):
+def print_configuration(config, save_path, mode, space_from_start=40, model=None):
     """
     Print the mode, model, and configuration parameters in a perfectly aligned format.
     Args:
@@ -327,23 +327,27 @@ def print_configuration(config, mode, model, save_path, space_from_start=40):
 
     data_path = os.path.join(config['data_path'], config['task'], 'imagesTr')
 
-    # Print the Mode, Model, and Data Path
     print(f"Mode{' ' * (space_from_start - len('Mode'))}{mode}")
-    print(f"Model{' ' * (space_from_start - len('Model'))}{model}")
+    if model:
+        print(f"Model{' ' * (space_from_start - len('Model'))}{model}")
     print(f"Task{' ' * (space_from_start - len('Task'))}{config['task']}")
-    print(f"Configuration File{' ' * (space_from_start - len('Configuration File'))}{config['config']}")
+    if model:
+        print(f"Configuration File{' ' * (space_from_start - len('Configuration File'))}{config['config']}")
     print(f"Data Path{' ' * (space_from_start - len('Data Path'))}{data_path}")
     print(f"Save Path{' ' * (space_from_start - len('Save Path'))}{save_path}")
-    print("\nParameters:\n" + "-" * (space_from_start * 3))
+    if model:
+        print("\nParameters:\n" + "-" * (space_from_start * 3))
 
-    # Print each parameter with aligned values
-    for i, (key, value) in enumerate(flat_config.items()):
-        if key not in ["task", "config", "data_path", "save_path"]:  # Skip already printed keys
-            spaces = " " * (space_from_start - len(key))  # Calculate spaces for alignment
-            if i == len(flat_config) - 5:
-                print(f"{key}{spaces}{value}\n{'=' * (space_from_start * 3)}")
-            else:
-                print(f"{key}{spaces}{value}")
+        # Print each parameter with aligned values
+        for i, (key, value) in enumerate(flat_config.items()):
+            if key not in ["task", "config", "data_path", "save_path"]:  # Skip already printed keys
+                spaces = " " * (space_from_start - len(key))  # Calculate spaces for alignment
+                if i == len(flat_config) - 5:
+                    print(f"{key}{spaces}{value}\n{'=' * (space_from_start * 3)}")
+                else:
+                    print(f"{key}{spaces}{value}")
+    else:
+        print(f"{'=' * (space_from_start * 3)}")
 
 
 def suppress_console_handlers():

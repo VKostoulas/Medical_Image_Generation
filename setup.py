@@ -24,7 +24,7 @@ setup(
     # CLI Commands
     entry_points={
         "console_scripts": [
-            "normalize_dataset=medimgen.equalize_and_normalize_dataset:main",
+            "preprocess_dataset=medimgen.preprocess_dataset:main",
             "train_ddpm=medimgen.train_ddpm:main",
             "train_vqgan=medimgen.train_vqgan:main",
             "train_ldm=medimgen.train_ldm:main",

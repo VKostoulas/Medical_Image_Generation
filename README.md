@@ -65,17 +65,18 @@ unique *task* identifier.
 
 ### Dataset normalization and histogram equalization
 
-If you want to first resample all the images to the median voxel spacing run:
+First, you want to make sure that unnecessary background areas are removed and that
+all the images have the same voxel spacing. For this run:
 
 ```bash
-normalize_dataset --task your_task
+preprocess_dataset --task your_task
 ```
 
-This will create a new folder called your_task_normalized. If you also want to 
+This will create a new folder called your_task_preprocessed. If you also want to 
 perform histogram equalization run:
 
 ```bash
-normalize_dataset --task Task01_BrainTumour -intensity
+preprocess_dataset --task your_task -intensity
 ```
 
 ### Configuration

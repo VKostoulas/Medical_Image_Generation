@@ -18,6 +18,7 @@ from generative.networks.schedulers import DDPMScheduler
 from medimgen.data_processing import get_data_loaders
 from medimgen.configuration import (load_config, parse_arguments, update_config_with_args, validate_and_cast_config,
                                     print_configuration, create_save_path_dict)
+from medimgen.utils import create_gif_from_folder
 
 
 def train_ddpm(config, train_loader, val_loader, device, save_dict):
@@ -125,7 +126,7 @@ def train_ddpm(config, train_loader, val_loader, device, save_dict):
                     slice_file = os.path.join(epoch_dir, f"slice_{slice_idx}.png")
                     plt.savefig(slice_file, dpi=300, bbox_inches='tight', pad_inches=0)
                     plt.close()  # Close the figure to free memory
-
+                create_gif_from_folder(epoch_dir, os.path.join(epoch_dir, f"epoch_{epoch}.gif"), 80)
     total_time = time.time() - total_start
     print(f"train completed, total time: {total_time}.")
 
@@ -291,7 +292,7 @@ def main():
     mode = "Training"
     model = "ddpm"
     save_dict, save_path = create_save_path_dict(config)
-    print_configuration(config, mode, model, save_path)
+    print_configuration(config, save_path, mode, model=model)
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
