@@ -77,7 +77,7 @@ def train_vqgan(config, train_loader, val_loader, device, save_dict):
                     recons_loss = l1_loss(reconstructions.float(), images.float())
                     p_loss = perceptual_loss(reconstructions.float(), images.float())
                     generator_loss = adv_loss(logits_fake, target_is_real=True, for_discriminator=False)
-                    loss_g = recons_loss + quantization_loss + config['perc_weight'] * p_loss + config['adv_weight'] * generator_loss
+                    loss_g = recons_loss + quantization_loss * config['q_weight'] + p_loss * config['perc_weight']  + generator_loss * config['adv_weight']
 
                 scaler_g.scale(loss_g).backward()
                 scaler_g.step(optimizer_g)

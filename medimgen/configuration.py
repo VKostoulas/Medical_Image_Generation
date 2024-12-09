@@ -62,8 +62,9 @@ def parse_arguments(description, args_mode):
     if args_mode == 'train_vqgan':
         parser.add_argument("--g_learning_rate", type=float, help="Generator learning rate")
         parser.add_argument("--d_learning_rate", type=float, help="Discriminator learning rate")
-        parser.add_argument("--adv_weight", type=float, help="Adversarial weight")
-        parser.add_argument("--perc_weight", type=float, help="Perceptual weight")
+        parser.add_argument("--adv_weight", type=float, help="Adversarial loss weight")
+        parser.add_argument("--perc_weight", type=float, help="Perceptual loss weight")
+        parser.add_argument("--q_weight", type=float, help="Quantization loss weight")
 
         # Perceptual parameters
         parser.add_argument("--perceptual_spatial_dims", type=int, help="Spatial dimensions for perceptual parameters")
@@ -182,6 +183,8 @@ def update_config_with_args(config, args, args_mode):
             config["adv_weight"] = args.adv_weight
         if args.perc_weight is not None:
             config["perc_weight"] = args.perc_weight
+        if args.q_weight is not None:
+            config["q_weight"] = args.q_weight
         # Update perceptual parameters
         if args.perceptual_spatial_dims is not None:
             config["perceptual_params"]["spatial_dims"] = args.spatial_dims
@@ -346,6 +349,10 @@ def validate_and_cast_config(config, args_mode):
         config["perc_weight"] = float(config["perc_weight"])
         if config["perc_weight"] < 0:
             raise ValueError("perc_weight must be a non-negative number.")
+
+        config["q_weight"] = float(config["q_weight"])
+        if config["q_weight"] < 0:
+            raise ValueError("q_weight must be a non-negative number.")
 
         # Validate and cast perceptual parameters
         perceptual_params = config["perceptual_params"]
