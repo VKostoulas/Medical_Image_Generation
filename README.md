@@ -29,7 +29,7 @@ enjoy hyperparameter tuning!
 
 [//]: # (      - pip install pyyaml matplotlib tqdm nibabel scikit-image monai )
 
-[//]: # (      monai-generative nnunet)
+[//]: # (      monai-generative nnunet lpips)
 
 [//]: # ()
 [//]: # (  - &#40;Optional&#41; You can install these libraries also for jupyter notebooks and)
@@ -99,6 +99,17 @@ train_ddpm --task Task01_BrainTumour --config ddpm_config --output_mode log
 we are using a custom 
 configuration file, and we are saving every output in a log file instead of printing 
 on screen.
+
+To train a Latent Diffusion Model, first we need to train a VQ-GAN:
+
+```bash
+train_vqgan --task Task01_BrainTumour --config vqgan_config --output_mode log
+```
+After finishing training, we can then train the Latent Diffusion Model:
+
+```bash
+train_ldm --task Task01_BrainTumour --config ldm_config --output_mode log
+```
 
 Running an experiment will create a directory in your save_path. Depending 
 on your configuration the following folders or files will be created: 

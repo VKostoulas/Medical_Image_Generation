@@ -284,10 +284,11 @@ class ModelTrainer:
                 prof.stop()
 
 def main():
-    args = parse_arguments(description="Train a Denoising Diffusion Probabilistic Model", args_mode="train_ddpm")
+    args_mode = "train_ddpm"
+    args = parse_arguments(description="Train a Denoising Diffusion Probabilistic Model", args_mode=args_mode)
     config = load_config(args.config)
-    config = update_config_with_args(config, args)
-    config = validate_and_cast_config(config)
+    config = update_config_with_args(config, args, args_mode)
+    config = validate_and_cast_config(config, args_mode)
     mode = "Training"
     model = "ddpm"
     save_dict, save_path = create_save_path_dict(config)
