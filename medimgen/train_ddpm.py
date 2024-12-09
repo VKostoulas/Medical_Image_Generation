@@ -10,6 +10,7 @@ import torch.nn.functional as F
 from torch.cuda.amp import GradScaler, autocast
 from tqdm import tqdm
 
+from torchinfo import summary
 from monai.utils import set_determinism
 from generative.inferers import DiffusionInferer
 from generative.networks.nets import DiffusionModelUNet
@@ -24,6 +25,12 @@ from medimgen.utils import create_gif_from_folder
 def train_ddpm(config, train_loader, val_loader, device, save_dict):
     model = DiffusionModelUNet(**config['model_params'])
     model.to(device)
+
+    img_shape = config['transformations']['resize_shape'] if config['transformations']['resize_shape'] \
+        else config['transformations']['patch_size']
+    input_shape = (1, config['model_params']['in_channels'], *img_shape)
+    summary(model, input_shape, batch_dim=None, depth=3)
+
     scheduler = DDPMScheduler(num_train_timesteps=config['n_train_timesteps'], schedule=config['time_scheduler'],
                               beta_start=0.0005, beta_end=0.0195)
     inferer = DiffusionInferer(scheduler)
@@ -92,7 +99,6 @@ def train_ddpm(config, train_loader, val_loader, device, save_dict):
             val_epoch_loss_list.append(val_epoch_loss / (step + 1))
 
             # Sampling image during training
-            img_shape = config['transformations']['resize_shape'] if config['transformations']['resize_shape'] else config['transformations']['patch_size']
             image = torch.randn((1, 1) + img_shape)
             image = image.to(device)
             scheduler.set_timesteps(num_inference_steps=config['n_infer_timesteps'])

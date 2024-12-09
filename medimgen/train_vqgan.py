@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 
 from tqdm import tqdm
 from torch.nn import L1Loss
+from torchinfo import summary
 from torch.cuda.amp import GradScaler, autocast
 from monai.utils import set_determinism
 from generative.networks.nets import VQVAE, PatchDiscriminator
@@ -23,6 +24,11 @@ from medimgen.utils import create_gif_from_folder
 def train_vqgan(config, train_loader, val_loader, device, save_dict):
     model = VQVAE(**config['model_params'])
     model.to(device)
+
+    img_shape = config['transformations']['resize_shape'] if config['transformations']['resize_shape'] \
+        else config['transformations']['patch_size']
+    input_shape = (1, config['model_params']['in_channels'], *img_shape)
+    summary(model, input_shape, batch_dim=None, depth=3)
 
     discriminator = PatchDiscriminator(**config['discriminator_params'])
     discriminator.to(device)
