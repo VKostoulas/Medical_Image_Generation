@@ -22,21 +22,24 @@ from medimgen.utils import create_gif_from_folder
 
 
 def train_vqgan(config, train_loader, val_loader, device, save_dict):
-    model = VQVAE(**config['model_params'])
-    model.to(device)
-
     img_shape = config['transformations']['resize_shape'] if config['transformations']['resize_shape'] \
         else config['transformations']['patch_size']
     input_shape = (1, config['model_params']['in_channels'], *img_shape)
+
+    model = VQVAE(**config['model_params'])
+    model.to(device)
     summary(model, input_shape, batch_dim=None, depth=3)
 
     discriminator = PatchDiscriminator(**config['discriminator_params'])
     discriminator.to(device)
+    summary(discriminator, input_shape, batch_dim=None, depth=3)
 
     l1_loss = L1Loss()
     adv_loss = PatchAdversarialLoss(criterion="least_squares")
+
     perceptual_loss = PerceptualLoss(**config['perceptual_params'])
     perceptual_loss.to(device)
+    summary(perceptual_loss, [input_shape, input_shape], batch_dim=None, depth=3)
 
     optimizer_g = torch.optim.Adam(params=model.parameters(), lr=config['g_learning_rate'])
     optimizer_d = torch.optim.Adam(params=discriminator.parameters(), lr=config['d_learning_rate'])
