@@ -25,7 +25,7 @@ from medimgen.utils import create_gif_from_folder
 def train_ddpm(config, train_loader, val_loader, device, save_dict):
     img_shape = config['transformations']['resize_shape'] if config['transformations']['resize_shape'] \
         else config['transformations']['patch_size']
-    input_shape = (1, config['model_params']['in_channels'], *img_shape)
+    input_shape = [(1, config['model_params']['in_channels'], *img_shape), (1,)]
 
     model = DiffusionModelUNet(**config['model_params'])
     model.to(device)
