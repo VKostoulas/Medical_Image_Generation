@@ -416,7 +416,6 @@ def validate_and_cast_config(config, args_mode):
         if model_params["num_res_layers"] <= 0:
             raise ValueError("num_res_layers must be a positive integer.")
 
-        print([x for x in model_params["downsample_parameters"]], [type(x) for x in model_params["downsample_parameters"]])
         model_params["downsample_parameters"] = [x if isinstance(x, tuple) else tuple(x) for x in model_params["downsample_parameters"]]
         if not all(len(t) == 4 for t in model_params["downsample_parameters"]):
             raise ValueError("Each tuple in downsample_parameters must have exactly 4 elements.")
