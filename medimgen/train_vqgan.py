@@ -7,6 +7,7 @@ import torch
 import time
 import matplotlib.pyplot as plt
 
+from PIL import Image
 from tqdm import tqdm
 from torch.nn import L1Loss
 from torchinfo import summary
@@ -18,7 +19,7 @@ from generative.losses import PatchAdversarialLoss, PerceptualLoss
 from medimgen.data_processing import get_data_loaders
 from medimgen.configuration import (load_config, parse_arguments, update_config_with_args, validate_and_cast_config,
                                     print_configuration, create_save_path_dict)
-from medimgen.utils import create_gif_from_folder
+from medimgen.utils import create_gif_from_images, save_main_losses, save_gan_losses
 
 
 def train_vqgan(config, train_loader, val_loader, device, save_dict):
@@ -141,50 +142,54 @@ def train_vqgan(config, train_loader, val_loader, device, save_dict):
                       f"Validation Loss: {val_epoch_loss / len(val_loader):.4f}")
 
             if config['save_plots']:
-                # Create a directory for the current epoch
-                epoch_dir = os.path.join(save_dict['plots'], f"epoch_{epoch}")
-                os.makedirs(epoch_dir, exist_ok=True)
-
+                # Create a directory for the current epoch GIF
+                gif_output_path = os.path.join(save_dict['plots'], f"epoch_{epoch}.gif")
                 image = images[0]
                 image = image.unsqueeze(0) if len(image.shape) < 5 else image
                 reconstruction = reconstructions[0]
                 reconstruction = reconstruction.unsqueeze(0) if len(reconstruction.shape) < 5 else reconstruction
                 # Get the number of slices along the desired axis (e.g., the 4th dimension)
                 num_slices = image.shape[2]  # Assuming the image is [batch, channel, x, y, z]
-
                 # Normalize the original image volume to 0-1
                 image_min, image_max = image.cpu().min(), image.cpu().max()
                 normalized_image = (image.cpu() - image_min) / (image_max - image_min)
-
                 # Normalize the reconstruction volume to 0-1
                 recon_min, recon_max = reconstruction.cpu().min(), reconstruction.cpu().max()
                 normalized_reconstruction = (reconstruction.cpu() - recon_min) / (recon_max - recon_min)
+                # Create a list to hold the image slices as PIL.Image objects
+                gif_images = []
 
                 for slice_idx in range(num_slices):
                     plt.figure(figsize=(4, 2))  # Adjusting the figsize for side-by-side plots
-
                     # Plot the original image slice
                     slice_image = normalized_image[0, 0, slice_idx, :, :]
                     plt.subplot(1, 2, 1)
                     plt.imshow(slice_image, vmin=0, vmax=1, cmap="gray")
                     plt.title("Image")
                     plt.axis("off")
-
                     # Plot the reconstruction slice
                     slice_reconstruction = normalized_reconstruction[0, 0, slice_idx, :, :]
                     plt.subplot(1, 2, 2)
                     plt.imshow(slice_reconstruction, vmin=0, vmax=1, cmap="gray")
                     plt.title("Reconstruction")
                     plt.axis("off")
-
-                    # Save the slice comparison with its index in the epoch folder
-                    slice_file = os.path.join(epoch_dir, f"slice_{slice_idx}.png")
+                    # Save the figure to a BytesIO stream instead of saving to disk
                     plt.tight_layout()
-                    plt.savefig(slice_file, dpi=300, bbox_inches='tight', pad_inches=0)
+                    plt.savefig("temp.png", dpi=300, bbox_inches='tight', pad_inches=0)
                     plt.close()  # Close the figure to free memory
 
-                # Create GIF from folder
-                create_gif_from_folder(epoch_dir, os.path.join(epoch_dir, f"epoch_{epoch}.gif"), 80)
+                    # Open the saved figure as a PIL.Image and append to the list
+                    gif_images.append(Image.open("temp.png"))
+
+                # Create GIF from the list of images
+                create_gif_from_images(gif_images, gif_output_path, 80)
+                # Clean up the temporary file
+                os.remove("temp.png")
+
+                save_main_losses_path = os.path.join(save_dict['plots'], f"main_loss.png")
+                save_main_losses(epoch_recon_loss_list, val_epoch_loss_list, config['val_interval'], save_main_losses_path)
+                save_gan_losses_path = os.path.join(save_dict['plots'], f"gan_loss.png")
+                save_gan_losses(epoch_gen_loss_list, epoch_disc_loss_list, save_gan_losses_path)
 
     total_time = time.time() - total_start
     print(f"train completed, total time: {total_time}.")
@@ -212,5 +217,5 @@ def main():
 
     train_loader, val_loader = get_data_loaders(config)
 
-    print(f"\nStarting training ddpm model...")
+    print(f"\nStarting training vqgan model...")
     train_vqgan(config, train_loader, val_loader, device, save_dict)
