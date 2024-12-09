@@ -360,9 +360,11 @@ def validate_and_cast_config(config, args_mode):
         if perceptual_params["spatial_dims"] not in [2, 3]:
             raise ValueError("spatial_dims in perceptual_params must be 2 or 3.")
 
+        valid_nets = ["alex", "vgg", "squeeze", "radimagenet_resnet50", "medicalnet_resnet10_23datasets",
+                      "medicalnet_resnet50_23datasets", "resnet50"]
         perceptual_params["network_type"] = str(perceptual_params["network_type"])
-        if perceptual_params["network_type"] not in ["squeeze", "other_valid_types"]:
-            raise ValueError("network_type must be a valid string (e.g., 'squeeze').")
+        if perceptual_params["network_type"] not in valid_nets:
+            raise ValueError(f"network_type must be one of {valid_nets}.")
 
         perceptual_params["is_fake_3d"] = bool(perceptual_params["is_fake_3d"])
 
