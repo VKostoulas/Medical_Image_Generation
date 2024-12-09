@@ -7,9 +7,10 @@ import time
 import matplotlib.pyplot as plt
 import torch
 import torch.nn.functional as F
+
 from torch.cuda.amp import GradScaler, autocast
 from tqdm import tqdm
-
+from io import BytesIO
 from PIL import Image
 from torchinfo import summary
 from monai.utils import set_determinism
@@ -118,8 +119,7 @@ def train_ddpm(config, train_loader, val_loader, device, save_dict):
                 # Get the number of slices along the desired axis (e.g., the 4th dimension)
                 num_slices = image.shape[2]  # Assuming the image is [batch, channel, x, y, z]
                 # Normalize the whole volume to 0-1
-                image_min, image_max = image.cpu().min(), image.cpu().max()
-                normalized_image = (image.cpu() - image_min) / (image_max - image_min)
+                normalized_image = (image.cpu() - image.cpu().min()) / (image.cpu().max() - image.cpu().min())
                 # Create a list to hold the image slices as PIL.Image objects
                 gif_images = []
 
@@ -129,16 +129,18 @@ def train_ddpm(config, train_loader, val_loader, device, save_dict):
                     plt.imshow(slice_image, vmin=0, vmax=1, cmap="gray")
                     plt.tight_layout()
                     plt.axis("off")
-                    # Save the figure to a temporary file and add it to the GIF list
-                    plt.savefig("temp.png", dpi=300, bbox_inches='tight', pad_inches=0)
-                    plt.close()  # Close the figure to free memory
-                    # Open the saved figure as a PIL.Image and append to the list
-                    gif_images.append(Image.open("temp.png"))
+
+                    buffer = BytesIO()
+                    plt.savefig(buffer, format='png', dpi=300, bbox_inches='tight', pad_inches=0)
+                    plt.close()
+
+                    buffer.seek(0)
+                    gif_image = Image.open(buffer).copy()  # Fully load the image into memory
+                    gif_images.append(gif_image)
+                    buffer.close()
 
                 # Create GIF from the list of images
                 create_gif_from_images(gif_images, gif_output_path, 80)
-                # Clean up the temporary file
-                os.remove("temp.png")
 
                 save_main_losses_path = os.path.join(save_dict['plots'], f"main_loss.png")
                 save_main_losses(epoch_loss_list, val_epoch_loss_list, config['val_interval'],
