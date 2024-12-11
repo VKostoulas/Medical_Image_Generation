@@ -29,7 +29,7 @@ def train_vqgan(config, train_loader, val_loader, device, save_dict):
         else config['transformations']['patch_size']
     input_shape = (1, config['model_params']['in_channels'], *img_shape)
 
-    model = VQVAE(act='SWISH', **config['model_params'])
+    model = VQVAE(**config['model_params'])
     model.to(device)
     summary(model, input_shape, batch_dim=None, depth=3)
 
