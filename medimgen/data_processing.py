@@ -104,9 +104,9 @@ class MedicalDataset(Dataset):
         image = (image - min_val) / (max_val - min_val)
         image = self.transform(image)
         # scale to -1 1
-        min_val = np.min(image)
-        max_val = np.max(image)
-        image = 2 * (image - min_val) / (max_val - min_val) - 1
+        # min_val = np.min(image)
+        # max_val = np.max(image)
+        # image = 2 * (image - min_val) / (max_val - min_val) - 1
         image = torch.as_tensor(image).float()
         image = torch.squeeze(image, dim=0)
         image = image.contiguous()

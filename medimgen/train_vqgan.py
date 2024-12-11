@@ -14,6 +14,7 @@ from torch.nn import L1Loss
 from torchinfo import summary
 from torch.cuda.amp import GradScaler, autocast
 from monai.utils import set_determinism
+from monai.networks.layers import Act
 from generative.networks.nets import VQVAE, PatchDiscriminator
 from generative.losses import PatchAdversarialLoss, PerceptualLoss
 
@@ -28,7 +29,7 @@ def train_vqgan(config, train_loader, val_loader, device, save_dict):
         else config['transformations']['patch_size']
     input_shape = (1, config['model_params']['in_channels'], *img_shape)
 
-    model = VQVAE(**config['model_params'])
+    model = VQVAE(act='SWISH', **config['model_params'])
     model.to(device)
     summary(model, input_shape, batch_dim=None, depth=3)
 
@@ -45,6 +46,14 @@ def train_vqgan(config, train_loader, val_loader, device, save_dict):
 
     optimizer_g = torch.optim.Adam(params=model.parameters(), lr=config['g_learning_rate'])
     optimizer_d = torch.optim.Adam(params=discriminator.parameters(), lr=config['d_learning_rate'])
+
+    if config["lr_scheduler"]:
+        scheduler_class = getattr(torch.optim.lr_scheduler, config["lr_scheduler"])  # Get the class dynamically
+        g_lr_scheduler = scheduler_class(optimizer_g, **config["lr_scheduler_params"])
+        d_lr_scheduler = scheduler_class(optimizer_d, **config["lr_scheduler_params"])
+    else:
+        g_lr_scheduler = None
+        d_lr_scheduler = None
 
     scaler_g = GradScaler()
     scaler_d = GradScaler()
@@ -80,6 +89,9 @@ def train_vqgan(config, train_loader, val_loader, device, save_dict):
                     loss_g = recons_loss + quantization_loss * config['q_weight'] + p_loss * config['perc_weight']  + generator_loss * config['adv_weight']
 
                 scaler_g.scale(loss_g).backward()
+                scaler_g.unscale_(optimizer_g)
+                # Apply gradient clipping
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 scaler_g.step(optimizer_g)
                 scaler_g.update()
 
@@ -95,6 +107,9 @@ def train_vqgan(config, train_loader, val_loader, device, save_dict):
                     loss_d = config['adv_weight'] * discriminator_loss
 
                 scaler_d.scale(loss_d).backward()
+                scaler_d.unscale_(optimizer_d)
+                # Apply gradient clipping
+                torch.nn.utils.clip_grad_norm_(discriminator.parameters(), max_norm=1.0)
                 scaler_d.step(optimizer_d)
                 scaler_d.update()
 
@@ -112,6 +127,14 @@ def train_vqgan(config, train_loader, val_loader, device, save_dict):
         epoch_recon_loss_list.append(epoch_loss / (step + 1))
         epoch_gen_loss_list.append(gen_epoch_loss / (step + 1))
         epoch_disc_loss_list.append(disc_epoch_loss / (step + 1))
+
+        if g_lr_scheduler:
+            g_lr_scheduler.step()
+            print(f"Adjusting learning rate of generator to {g_lr_scheduler.get_last_lr()[0]:.4e}.")
+
+        if d_lr_scheduler:
+            d_lr_scheduler.step()
+            print(f"Adjusting learning rate of discriminator to {d_lr_scheduler.get_last_lr()[0]:.4e}.")
 
         if disable_prog_bar:
             end = time.time() - start
@@ -149,9 +172,9 @@ def train_vqgan(config, train_loader, val_loader, device, save_dict):
                 image = images[0].unsqueeze(0) if len(images[0].shape) < 5 else images[0]
                 reconstruction = reconstructions[0].unsqueeze(0) if len(reconstructions[0].shape) < 5 else \
                 reconstructions[0]
-                normalized_image = (image.cpu() - image.cpu().min()) / (image.cpu().max() - image.cpu().min())
-                normalized_reconstruction = (reconstruction.cpu() - reconstruction.cpu().min()) / (
-                            reconstruction.cpu().max() - reconstruction.cpu().min())
+                # normalized_image = (image.cpu() - image.cpu().min()) / (image.cpu().max() - image.cpu().min())
+                # normalized_reconstruction = (reconstruction.cpu() - reconstruction.cpu().min()) / (
+                #             reconstruction.cpu().max() - reconstruction.cpu().min())
                 # Get the number of slices along the desired axis (e.g., the 2th dimension)
                 num_slices = image.shape[2]  # Assuming the image is [batch, channel, x, y, z]
 
@@ -160,13 +183,13 @@ def train_vqgan(config, train_loader, val_loader, device, save_dict):
                 for slice_idx in range(num_slices):
                     plt.figure(figsize=(4, 2))  # Adjusting the figsize for side-by-side plots
                     # Plot the original image slice
-                    slice_image = normalized_image[0, 0, slice_idx, :, :]
+                    slice_image = image.cpu()[0, 0, slice_idx, :, :]
                     plt.subplot(1, 2, 1)
                     plt.imshow(slice_image, vmin=0, vmax=1, cmap="gray")
                     plt.title("Image")
                     plt.axis("off")
                     # Plot the reconstruction slice
-                    slice_reconstruction = normalized_reconstruction[0, 0, slice_idx, :, :]
+                    slice_reconstruction = reconstruction.cpu()[0, 0, slice_idx, :, :]
                     plt.subplot(1, 2, 2)
                     plt.imshow(slice_reconstruction, vmin=0, vmax=1, cmap="gray")
                     plt.title("Reconstruction")
@@ -183,7 +206,7 @@ def train_vqgan(config, train_loader, val_loader, device, save_dict):
                     buffer.close()
 
                 # Create GIF from the list of images
-                create_gif_from_images(gif_images, gif_output_path, 80)
+                create_gif_from_images(gif_images, gif_output_path)
 
                 save_main_losses_path = os.path.join(save_dict['plots'], f"main_loss.png")
                 save_main_losses(epoch_recon_loss_list, val_epoch_loss_list, config['val_interval'], save_main_losses_path)

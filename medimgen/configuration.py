@@ -46,6 +46,12 @@ def parse_arguments(description, args_mode):
         parser.add_argument("--n_epochs", type=int, help="Number of epochs")
         parser.add_argument("--val_interval", type=int, help="Validation interval")
 
+        # Parsing arguments for lr_scheduler
+        parser.add_argument("--lr_scheduler", type=str, help="Type of learning rate scheduler")
+        parser.add_argument("--start_factor", type=float, help="Start factor for learning rate scheduler")
+        parser.add_argument("--end_factor", type=float, help="End factor for learning rate scheduler")
+        parser.add_argument("--total_iters", type=int, help="Total iterations for the learning rate scheduler")
+
     if args_mode == 'train_ddpm':
         parser.add_argument("--n_train_timesteps", type=int, help="Number of training timesteps")
         parser.add_argument("--n_infer_timesteps", type=int, help="Number of inference timesteps")
@@ -149,6 +155,15 @@ def update_config_with_args(config, args, args_mode):
         config["n_epochs"] = args.n_epochs
     if args.val_interval is not None:
         config["val_interval"] = args.val_interval
+
+    if args.lr_scheduler is not None:
+        config["lr_scheduler"] = args.lr_scheduler
+    if args.start_factor is not None:
+        config["lr_scheduler_params"]["start_factor"] = args.start_factor
+    if args.end_factor is not None:
+        config["lr_scheduler_params"]["end_factor"] = args.end_factor
+    if args.total_iters is not None:
+        config["lr_scheduler_params"]["total_iters"] = args.total_iters
 
     if args_mode == 'train_ddpm':
         if args.n_train_timesteps is not None:
@@ -286,6 +301,20 @@ def validate_and_cast_config(config, args_mode):
     config["val_interval"] = int(config["val_interval"])
     if config["val_interval"] <= 0:
         raise ValueError("val_interval must be a positive integer.")
+
+    lr_scheduler_params = config["lr_scheduler_params"]
+    # Validate and cast start_factor
+    lr_scheduler_params["start_factor"] = float(lr_scheduler_params["start_factor"])
+    if not (0.0 < lr_scheduler_params["start_factor"] <= 1.0):
+        raise ValueError("start_factor must be a float between 0 (exclusive) and 1 (inclusive).")
+
+    lr_scheduler_params["end_factor"] = float(lr_scheduler_params["end_factor"])
+    if not (0.0 <= lr_scheduler_params["end_factor"] <= 1.0):
+        raise ValueError("end_factor must be a float between 0 and 1 (inclusive).")
+
+    lr_scheduler_params["total_iters"] = int(lr_scheduler_params["total_iters"])
+    if lr_scheduler_params["total_iters"] <= 0:
+        raise ValueError("total_iters must be a positive integer.")
 
     if args_mode == 'train_ddpm':
         config["n_train_timesteps"] = int(config["n_train_timesteps"])

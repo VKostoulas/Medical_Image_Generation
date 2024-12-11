@@ -38,6 +38,12 @@ def train_ddpm(config, train_loader, val_loader, device, save_dict):
     inferer = DiffusionInferer(scheduler)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=config['learning_rate'])
 
+    if config["lr_scheduler"]:
+        scheduler_class = getattr(torch.optim.lr_scheduler, config["lr_scheduler"])  # Get the class dynamically
+        lr_scheduler = scheduler_class(optimizer, **config["lr_scheduler_params"])
+    else:
+        lr_scheduler = None
+
     epoch_loss_list = []
     val_epoch_loss_list = []
 
@@ -65,6 +71,9 @@ def train_ddpm(config, train_loader, val_loader, device, save_dict):
                     loss = F.mse_loss(noise_pred.float(), noise.float())
 
                 scaler.scale(loss).backward()
+                scaler.unscale_(optimizer)
+                # Apply gradient clipping
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 scaler.step(optimizer)
                 scaler.update()
 
@@ -72,6 +81,10 @@ def train_ddpm(config, train_loader, val_loader, device, save_dict):
 
                 progress_bar.set_postfix({"loss": epoch_loss / (step + 1)})
             epoch_loss_list.append(epoch_loss / (step + 1))
+
+        if lr_scheduler:
+            lr_scheduler.step()
+            print(f"Adjusting learning rate to {lr_scheduler.get_last_lr()[0]:.4e}.")
 
         # Log epoch loss
         if disable_prog_bar:
@@ -140,7 +153,7 @@ def train_ddpm(config, train_loader, val_loader, device, save_dict):
                     buffer.close()
 
                 # Create GIF from the list of images
-                create_gif_from_images(gif_images, gif_output_path, 80)
+                create_gif_from_images(gif_images, gif_output_path)
 
                 save_main_losses_path = os.path.join(save_dict['plots'], f"main_loss.png")
                 save_main_losses(epoch_loss_list, val_epoch_loss_list, config['val_interval'],
