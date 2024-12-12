@@ -74,8 +74,8 @@ class MedicalDataset(Dataset):
             return val_ids
 
     def transform(self, image):
-        apply_transforms = True if self.section == "training" else False
-        transformations = define_nnunet_transformations(self.transformation_args, apply_transforms)
+        validation = False if self.section == "training" else True
+        transformations = define_nnunet_transformations(self.transformation_args, validation)
         transformed = transformations(data=image)
         transformed_image = transformed["data"]
         return transformed_image
@@ -140,7 +140,7 @@ def define_nnunet_transformations(params, validation=False, border_val_seg=-1, r
         gamma_retain_stats = True
         gamma_range = (0.7, 1.5)
         p_gamma = 0.15
-        mirror_axes = (0, 1)
+        mirror_axes = (1,)
         border_mode_data = "constant"
 
         tr_transforms.append(SpatialTransform(
