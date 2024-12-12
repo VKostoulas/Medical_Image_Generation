@@ -53,6 +53,8 @@ def parse_arguments(description, args_mode):
         parser.add_argument("--total_iters", type=int, help="Total iterations for the learning rate scheduler")
 
     if args_mode == 'train_ddpm':
+        parser.add_argument("--load_model_path", type=str, help="Path to checkpoint of pretrained ddpm_model")
+
         parser.add_argument("--n_train_timesteps", type=int, help="Number of training timesteps")
         parser.add_argument("--n_infer_timesteps", type=int, help="Number of inference timesteps")
         parser.add_argument("--time_scheduler", type=str, help="Time scheduler type")
@@ -64,6 +66,7 @@ def parse_arguments(description, args_mode):
         parser.add_argument("--attention_levels", nargs='+', type=lambda x: x.lower() == 'true', help="List of attention levels")
         parser.add_argument("--num_head_channels", nargs='+', type=int, help="List of head channel numbers")
         parser.add_argument("--num_res_blocks", type=int, help="Number of residual blocks")
+        parser.add_argument("--use_flash_attention", type=lambda x: x.lower() == 'true', help="Use flash attention for speed and memory efficiency")
 
     if args_mode == 'train_vqgan':
         parser.add_argument("--g_learning_rate", type=float, help="Generator learning rate")
@@ -168,6 +171,9 @@ def update_config_with_args(config, args, args_mode):
         config["lr_scheduler_params"]["total_iters"] = args.total_iters
 
     if args_mode == 'train_ddpm':
+        if args.load_model_path is not None:
+            config["load_model_path"] = args.load_model_path
+
         if args.n_train_timesteps is not None:
             config["n_train_timesteps"] = args.n_train_timesteps
         if args.n_infer_timesteps is not None:
@@ -190,6 +196,8 @@ def update_config_with_args(config, args, args_mode):
             config["model_params"]["num_head_channels"] = args.num_head_channels
         if args.num_res_blocks is not None:
             config["model_params"]["num_res_blocks"] = args.num_res_blocks
+        if args.use_flash_attention is not None:
+            config["model_params"]["use_flash_attention"] = args.use_flash_attention
 
     if args_mode == 'train_vqgan':
         if args.g_learning_rate is not None:
@@ -366,6 +374,8 @@ def validate_and_cast_config(config, args_mode):
         params["num_res_blocks"] = int(params["num_res_blocks"])
         if params["num_res_blocks"] <= 0:
             raise ValueError("num_res_blocks must be a positive integer.")
+
+        params["use_flash_attention"] = bool(params["use_flash_attention"])
 
     if args_mode == 'train_vqgan':
         # Validate and cast global learning parameters
