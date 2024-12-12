@@ -244,9 +244,9 @@ class DDPM:
         self.scheduler.set_timesteps(num_inference_steps=self.config['n_infer_timesteps'])
 
         with autocast(enabled=True):
-            sampled_image = self.inferer.sample(input_noise=image, diffusion_model=self.network, scheduler=self.scheduler)
+            image = self.inferer.sample(input_noise=image, diffusion_model=self.network, scheduler=self.scheduler)
 
-        return sampled_image
+        return image
 
     def save_plots(self, sampled_image, gif_output_path, epoch_loss_list=None, val_epoch_loss_list=None):
         num_slices = sampled_image.shape[2]
