@@ -100,6 +100,7 @@ def parse_arguments(description, args_mode):
                             help="Parameters for upsampling in the model")
         parser.add_argument("--num_embeddings", type=int, help="Number of embeddings for the model")
         parser.add_argument("--embedding_dim", type=int, help="Embedding dimension for the model")
+        parser.add_argument("--use_checkpointing", type=lambda x: x.lower() == 'true', help="Use activation checkpointing")
 
     if args_mode != 'preprocess_data':
         parser.add_argument("--progress_bar", type=lambda x: x.lower() == 'true', help="Use progress bars")
@@ -239,6 +240,8 @@ def update_config_with_args(config, args, args_mode):
             config["model_params"]["num_embeddings"] = args.num_embeddings
         if args.embedding_dim is not None:
             config["model_params"]["embedding_dim"] = args.embedding_dim
+        if args.use_checkpointing is not None:
+            config["model_params"]["use_checkpointing"] = args.use_checkpointing
 
     if args.progress_bar is not None:
         config["progress_bar"] = args.progress_bar
@@ -460,6 +463,8 @@ def validate_and_cast_config(config, args_mode):
         model_params["embedding_dim"] = int(model_params["embedding_dim"])
         if model_params["embedding_dim"] <= 0:
             raise ValueError("embedding_dim must be a positive integer.")
+
+        model_params["use_checkpointing"] = bool(model_params["use_checkpointing"])
 
     config["progress_bar"] = bool(config["progress_bar"])
     config["output_mode"] = str(config["output_mode"])

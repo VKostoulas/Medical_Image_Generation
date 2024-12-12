@@ -132,13 +132,13 @@ def train_ddpm(config, train_loader, val_loader, device, save_dict):
                 # Get the number of slices along the desired axis (e.g., the 4th dimension)
                 num_slices = image.shape[2]  # Assuming the image is [batch, channel, x, y, z]
                 # Normalize the whole volume to 0-1
-                normalized_image = (image.cpu() - image.cpu().min()) / (image.cpu().max() - image.cpu().min())
+                # normalized_image = (image.cpu() - image.cpu().min()) / (image.cpu().max() - image.cpu().min())
                 # Create a list to hold the image slices as PIL.Image objects
                 gif_images = []
 
                 for slice_idx in range(num_slices):
                     plt.figure(figsize=(2, 2))
-                    slice_image = normalized_image[0, 0, slice_idx, :, :]
+                    slice_image = image.cpu()[0, 0, slice_idx, :, :]
                     plt.imshow(slice_image, vmin=0, vmax=1, cmap="gray")
                     plt.tight_layout()
                     plt.axis("off")
