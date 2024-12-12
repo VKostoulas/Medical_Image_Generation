@@ -86,6 +86,7 @@ def parse_arguments(description, args_mode):
         parser.add_argument("--discriminator_out_channels", type=int,
                             help="Number of output channels for discriminator")
         parser.add_argument("--discriminator_num_channels", type=int, help="Number of channels in the discriminator")
+        parser.add_argument("--discriminator_num_layers_d", type=int, help="Number of layers of discriminator")
 
         # Model parameters
         parser.add_argument("--model_spatial_dims", type=int, help="Spatial dimensions for model parameters")
@@ -219,6 +220,8 @@ def update_config_with_args(config, args, args_mode):
             config["discriminator_params"]["out_channels"] = args.discriminator_out_channels
         if args.discriminator_num_channels is not None:
             config["discriminator_params"]["num_channels"] = args.discriminator_num_channels
+        if args.discriminator_num_layers_d is not None:
+            config["discriminator_params"]["num_layers_d"] = args.discriminator_num_layers_d
         # Update model parameters
         if args.model_spatial_dims is not None:
             config["model_params"]["spatial_dims"] = args.model_spatial_dims
@@ -421,6 +424,10 @@ def validate_and_cast_config(config, args_mode):
         discriminator_params["num_channels"] = int(discriminator_params["num_channels"])
         if discriminator_params["num_channels"] <= 0:
             raise ValueError("num_channels in discriminator_params must be a positive integer.")
+
+        discriminator_params["num_layers_d"] = int(discriminator_params["num_layers_d"])
+        if discriminator_params["num_channels"] <= 0:
+            raise ValueError("num_layers_d in discriminator_params must be a positive integer.")
 
         # Validate and cast model parameters
         model_params = config["model_params"]
