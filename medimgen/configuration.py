@@ -66,6 +66,7 @@ def parse_arguments(description, args_mode):
         parser.add_argument("--attention_levels", nargs='+', type=lambda x: x.lower() == 'true', help="List of attention levels")
         parser.add_argument("--num_head_channels", nargs='+', type=int, help="List of head channel numbers")
         parser.add_argument("--num_res_blocks", type=int, help="Number of residual blocks")
+        parser.add_argument("--norm_num_groups", type=int, help="Number of groups for normalization")
         parser.add_argument("--use_flash_attention", type=lambda x: x.lower() == 'true', help="Use flash attention for speed and memory efficiency")
 
     if args_mode == 'train_vqgan':
@@ -196,6 +197,8 @@ def update_config_with_args(config, args, args_mode):
             config["model_params"]["num_head_channels"] = args.num_head_channels
         if args.num_res_blocks is not None:
             config["model_params"]["num_res_blocks"] = args.num_res_blocks
+        if args.norm_num_groups is not None:
+            config["model_params"]["norm_num_groups"] = args.norm_num_groups
         if args.use_flash_attention is not None:
             config["model_params"]["use_flash_attention"] = args.use_flash_attention
 
@@ -374,6 +377,10 @@ def validate_and_cast_config(config, args_mode):
         params["num_res_blocks"] = int(params["num_res_blocks"])
         if params["num_res_blocks"] <= 0:
             raise ValueError("num_res_blocks must be a positive integer.")
+
+        params["norm_num_groups"] = int(params["norm_num_groups"])
+        if params["norm_num_groups"] <= 0:
+            raise ValueError("norm_num_groups must be a positive integer.")
 
         params["use_flash_attention"] = bool(params["use_flash_attention"])
 
