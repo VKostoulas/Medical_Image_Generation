@@ -1,7 +1,4 @@
 import warnings
-
-from transformers.integrations import deepspeed_config
-
 warnings.filterwarnings("ignore")
 
 import os
