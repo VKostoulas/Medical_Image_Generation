@@ -517,7 +517,6 @@ def create_save_path_dict(config):
     # Generate a timestamped save directory
     timestamp = datetime.now().strftime("%Y_%m_%d-%I_%M_%S_%p")
     save_path = os.path.join(config['save_path'], timestamp)
-    os.makedirs(save_path, exist_ok=True)
 
     # Setup logging only if mode is 'log'
     if config["output_mode"] == "log":
@@ -528,7 +527,6 @@ def create_save_path_dict(config):
     for dir_name, should_save in save_dict.items():
         if should_save:
             temp_save_path = os.path.join(save_path, dir_name)
-            os.makedirs(temp_save_path, exist_ok=True)
             save_dict[dir_name] = temp_save_path
         else:
             save_dict[dir_name] = False

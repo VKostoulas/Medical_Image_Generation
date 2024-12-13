@@ -166,6 +166,8 @@ def train_vqgan(config, train_loader, val_loader, device, save_dict):
                       f"Validation Loss: {val_epoch_loss / len(val_loader):.4f}")
 
             if config['save_plots']:
+                if not os.path.exists(save_dict['plots']):
+                    os.makedirs(save_dict['plots'], exist_ok=True)
                 # Create a directory for the current epoch GIF
                 gif_output_path = os.path.join(save_dict['plots'], f"epoch_{epoch}.gif")
                 # Normalize the original and reconstructed image volumes

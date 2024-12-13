@@ -239,16 +239,20 @@ class DDPM:
 
         return val_epoch_loss / len(val_loader)
 
-    def sample_image(self):
+    def sample_image(self, verbose=False):
         image = torch.randn((1, 1) + self.config['transformations']['resize_shape']).to(self.device)
         self.scheduler.set_timesteps(num_inference_steps=self.config['n_infer_timesteps'])
 
         with autocast(enabled=True):
-            image = self.inferer.sample(input_noise=image, diffusion_model=self.network, scheduler=self.scheduler)
+            image = self.inferer.sample(input_noise=image, diffusion_model=self.network, scheduler=self.scheduler,
+                                        verbose=verbose)
 
         return image
 
     def save_plots(self, sampled_image, gif_output_path, epoch_loss_list=None, val_epoch_loss_list=None):
+        if not os.path.exists(self.save_dict['plots']):
+            os.makedirs(self.save_dict['plots'], exist_ok=True)
+
         num_slices = sampled_image.shape[2]
         gif_images = []
 
@@ -274,6 +278,9 @@ class DDPM:
             save_main_losses(epoch_loss_list, val_epoch_loss_list, self.config['val_interval'], save_main_losses_path)
 
     def save_model(self, epoch, validation_loss, optimizer, scheduler=None):
+        if not os.path.exists(self.save_dict['checkpoints']):
+            os.makedirs(self.save_dict['checkpoints'], exist_ok=True)
+
         last_checkpoint_path = os.path.join(self.save_dict['checkpoints'], 'last_model.pth')
         checkpoint = {
             'epoch': epoch + 1,
@@ -333,7 +340,8 @@ class DDPM:
                 val_loss = self.validate_epoch(val_loader)
                 val_epoch_loss_list.append(val_loss)
                 if self.save_dict['plots']:
-                    sampled_image = self.sample_image()
+                    sample_verbose = not (self.config['output_mode'] == 'log' or not self.config['progress_bar'])
+                    sampled_image = self.sample_image(sample_verbose)
                     gif_output_path = os.path.join(self.save_dict['plots'], f"epoch_{epoch}.gif")
                     self.save_plots(sampled_image, gif_output_path, epoch_loss_list, val_epoch_loss_list)
                 if self.save_dict['checkpoints']:
