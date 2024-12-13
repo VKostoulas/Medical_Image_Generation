@@ -52,8 +52,9 @@ def parse_arguments(description, args_mode):
         parser.add_argument("--end_factor", type=float, help="End factor for learning rate scheduler")
         parser.add_argument("--total_iters", type=int, help="Total iterations for the learning rate scheduler")
 
+        parser.add_argument("--load_model_path", type=str, help="Path to checkpoint of pretrained model")
+
     if args_mode == 'train_ddpm':
-        parser.add_argument("--load_model_path", type=str, help="Path to checkpoint of pretrained ddpm_model")
 
         parser.add_argument("--n_train_timesteps", type=int, help="Number of training timesteps")
         parser.add_argument("--n_infer_timesteps", type=int, help="Number of inference timesteps")
@@ -171,10 +172,10 @@ def update_config_with_args(config, args, args_mode):
     if args.total_iters is not None:
         config["lr_scheduler_params"]["total_iters"] = args.total_iters
 
-    if args_mode == 'train_ddpm':
-        if args.load_model_path is not None:
-            config["load_model_path"] = args.load_model_path
+    if args.load_model_path is not None:
+        config["load_model_path"] = args.load_model_path
 
+    if args_mode == 'train_ddpm':
         if args.n_train_timesteps is not None:
             config["n_train_timesteps"] = args.n_train_timesteps
         if args.n_infer_timesteps is not None:

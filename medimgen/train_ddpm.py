@@ -183,9 +183,9 @@ class DDPM:
             for step, batch in progress_bar:
                 images = batch["image"].to(self.device)
                 optimizer.zero_grad(set_to_none=True)
+                noise = torch.randn_like(images).to(self.device)
 
                 with autocast(enabled=True):
-                    noise = torch.randn_like(images).to(self.device)
                     timesteps = torch.randint(0, self.inferer.scheduler.num_train_timesteps, (images.shape[0],),
                                               device=images.device).long()
                     noise_pred = self.inferer(inputs=images, diffusion_model=self.network, noise=noise, timesteps=timesteps)
@@ -201,8 +201,8 @@ class DDPM:
                 progress_bar.set_postfix({"loss": epoch_loss / (step + 1)})
 
         if lr_scheduler:
-            print(f"Adjusting learning rate to {lr_scheduler.get_last_lr()[0]:.4e}.")
             lr_scheduler.step()
+            print(f"Adjusting learning rate to {lr_scheduler.get_last_lr()[0]:.4e}.")
 
         # Log epoch loss
         if disable_prog_bar:
@@ -303,19 +303,18 @@ class DDPM:
         else:
             torch.save(checkpoint, best_checkpoint_path)
 
-    def load_model(self, load_model_path, lr_scheduler, for_training=False):
+    def load_model(self, load_model_path, optimizer=None, lr_scheduler=None, for_training=False):
         print(f'Loading model from {load_model_path}...')
         checkpoint = torch.load(load_model_path)
         self.network.load_state_dict(checkpoint['network_state_dict'])
 
+        if optimizer:
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+        if lr_scheduler and 'scheduler_state_dict' in checkpoint:
+            lr_scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+
         if for_training:
-            print("Loading optimizer and scheduler states for training...")
-            if lr_scheduler:
-                return checkpoint['epoch'], checkpoint['optimizer_state_dict'], checkpoint['scheduler_state_dict']
-            else:
-                return checkpoint['epoch'], checkpoint['optimizer_state_dict'], None
-        else:
-            print("Loaded model for sampling.")
             return checkpoint['epoch']
 
     def train(self, train_loader, val_loader, optimizer, lr_scheduler=None):
@@ -326,11 +325,8 @@ class DDPM:
         val_epoch_loss_list = []
 
         if self.config['load_model_path']:
-            start_epoch, optimizer_state, scheduler_state = self.load_model(self.config['load_model_path'],
-                                                                            lr_scheduler, for_training=True)
-            optimizer.load_state_dict(optimizer_state)
-            if lr_scheduler:
-                lr_scheduler.load_state_dict(scheduler_state)
+            start_epoch, = self.load_model(self.config['load_model_path'], optimizer=optimizer, lr_scheduler=lr_scheduler,
+                                           for_training=True)
 
         for epoch in range(start_epoch, self.config['n_epochs']):
             train_loss = self.train_one_epoch(epoch, train_loader, optimizer, scaler, lr_scheduler)
