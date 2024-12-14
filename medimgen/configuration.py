@@ -54,7 +54,7 @@ def parse_arguments(description, args_mode):
 
         parser.add_argument("--load_model_path", type=str, help="Path to checkpoint of pretrained model")
 
-    if args_mode == 'train_ddpm':
+    if args_mode in ['train_ddpm', 'train_ldm']:
 
         parser.add_argument("--n_train_timesteps", type=int, help="Number of training timesteps")
         parser.add_argument("--n_infer_timesteps", type=int, help="Number of inference timesteps")
@@ -93,20 +93,21 @@ def parse_arguments(description, args_mode):
         parser.add_argument("--discriminator_num_channels", type=int, help="Number of channels in the discriminator")
         parser.add_argument("--discriminator_num_layers_d", type=int, help="Number of layers of discriminator")
 
-        # Model parameters
-        parser.add_argument("--model_spatial_dims", type=int, help="Spatial dimensions for model parameters")
-        parser.add_argument("--model_in_channels", type=int, help="Number of input channels for the model")
-        parser.add_argument("--model_out_channels", type=int, help="Number of output channels for the model")
-        parser.add_argument("--num_channels", nargs='+', type=int, help="List of channel numbers for the model")
-        parser.add_argument("--num_res_channels", nargs='+', type=int, help="Number of residual channels in the model")
-        parser.add_argument("--num_res_layers", type=int, help="Number of residual layers in the model")
-        parser.add_argument("--downsample_parameters", nargs='+', type=eval,
+    # VQVAE parameters
+    if args_mode in ['train_vqgan', 'train_ldm']:
+        parser.add_argument("--vqvae_spatial_dims", type=int, help="Spatial dimensions for model parameters")
+        parser.add_argument("--vqvae_in_channels", type=int, help="Number of input channels for the model")
+        parser.add_argument("--vqvae_out_channels", type=int, help="Number of output channels for the model")
+        parser.add_argument("--vqvae_num_channels", nargs='+', type=int, help="List of channel numbers for the model")
+        parser.add_argument("--vqvae_num_res_channels", nargs='+', type=int, help="Number of residual channels in the model")
+        parser.add_argument("--vqvae_num_res_layers", type=int, help="Number of residual layers in the model")
+        parser.add_argument("--vqvae_downsample_parameters", nargs='+', type=eval,
                             help="Parameters for downsampling in the model")
-        parser.add_argument("--upsample_parameters", nargs='+', type=eval,
+        parser.add_argument("--vqvae_upsample_parameters", nargs='+', type=eval,
                             help="Parameters for upsampling in the model")
-        parser.add_argument("--num_embeddings", type=int, help="Number of embeddings for the model")
-        parser.add_argument("--embedding_dim", type=int, help="Embedding dimension for the model")
-        parser.add_argument("--use_checkpointing", type=lambda x: x.lower() == 'true', help="Use activation checkpointing")
+        parser.add_argument("--vqvae_num_embeddings", type=int, help="Number of embeddings for the model")
+        parser.add_argument("--vqvae_embedding_dim", type=int, help="Embedding dimension for the model")
+        parser.add_argument("--vqvae_use_checkpointing", type=lambda x: x.lower() == 'true', help="Use activation checkpointing")
 
     if args_mode != 'preprocess_data':
         parser.add_argument("--progress_bar", type=lambda x: x.lower() == 'true', help="Use progress bars")
@@ -115,6 +116,9 @@ def parse_arguments(description, args_mode):
         parser.add_argument("--save_graph", type=lambda x: x.lower() == 'true', help="Whether to save the computation graph")
         parser.add_argument("--save_plots", type=lambda x: x.lower() == 'true', help="Whether to save plots")
         parser.add_argument("--save_profile", type=lambda x: x.lower() == 'true', help="Whether to save the profile")
+
+    if args_mode == 'train_ldm':
+        parser.add_argument("--load_vqvae_path", type=str, help="Path to checkpoint of pretrained vqvae")
 
     return parser.parse_args()
 
@@ -175,7 +179,7 @@ def update_config_with_args(config, args, args_mode):
     if args.load_model_path is not None:
         config["load_model_path"] = args.load_model_path
 
-    if args_mode == 'train_ddpm':
+    if args_mode in ['train_ddpm', 'train_ldm']:
         if args.n_train_timesteps is not None:
             config["n_train_timesteps"] = args.n_train_timesteps
         if args.n_infer_timesteps is not None:
@@ -234,29 +238,35 @@ def update_config_with_args(config, args, args_mode):
             config["discriminator_params"]["num_channels"] = args.discriminator_num_channels
         if args.discriminator_num_layers_d is not None:
             config["discriminator_params"]["num_layers_d"] = args.discriminator_num_layers_d
-        # Update model parameters
-        if args.model_spatial_dims is not None:
-            config["model_params"]["spatial_dims"] = args.model_spatial_dims
-        if args.model_in_channels is not None:
-            config["model_params"]["in_channels"] = args.model_in_channels
-        if args.model_out_channels is not None:
-            config["model_params"]["out_channels"] = args.model_out_channels
-        if args.num_channels is not None:
-            config["model_params"]["num_channels"] = args.num_channels
-        if args.num_res_channels is not None:
-            config["model_params"]["num_res_channels"] = args.num_res_channels
-        if args.num_res_layers is not None:
-            config["model_params"]["num_res_layers"] = args.num_res_layers
-        if args.downsample_parameters is not None:
-            config["model_params"]["downsample_parameters"] = args.downsample_parameters
-        if args.upsample_parameters is not None:
-            config["model_params"]["upsample_parameters"] = args.upsample_parameters
-        if args.num_embeddings is not None:
-            config["model_params"]["num_embeddings"] = args.num_embeddings
-        if args.embedding_dim is not None:
-            config["model_params"]["embedding_dim"] = args.embedding_dim
-        if args.use_checkpointing is not None:
-            config["model_params"]["use_checkpointing"] = args.use_checkpointing
+
+    # Update VQVAE parameters
+    if args_mode in ['train_vqgan', 'train_ldm']:
+        if args.vqvae_spatial_dims is not None:
+            config["vqvae_params"]["spatial_dims"] = args.vqvae_spatial_dims
+        if args.vqvae_in_channels is not None:
+            config["vqvae_params"]["in_channels"] = args.vqvae_in_channels
+        if args.vqvae_out_channels is not None:
+            config["vqvae_params"]["out_channels"] = args.vqvae_out_channels
+        if args.vqvae_num_channels is not None:
+            config["vqvae_params"]["num_channels"] = args.vqvae_num_channels
+        if args.vqvae_num_res_channels is not None:
+            config["vqvae_params"]["num_res_channels"] = args.vqvae_num_res_channels
+        if args.vqvae_num_res_layers is not None:
+            config["vqvae_params"]["num_res_layers"] = args.vqvae_num_res_layers
+        if args.vqvae_downsample_parameters is not None:
+            config["vqvae_params"]["downsample_parameters"] = args.vqvae_downsample_parameters
+        if args.vqvae_upsample_parameters is not None:
+            config["vqvae_params"]["upsample_parameters"] = args.vqvae_upsample_parameters
+        if args.vqvae_num_embeddings is not None:
+            config["vqvae_params"]["num_embeddings"] = args.vqvae_num_embeddings
+        if args.vqvae_embedding_dim is not None:
+            config["vqvae_params"]["embedding_dim"] = args.vqvae_embedding_dim
+        if args.vqvae_use_checkpointing is not None:
+            config["vqvae_params"]["use_checkpointing"] = args.vqvae_use_checkpointing
+
+    if args_mode == 'train_ldm':
+        if args.load_vqvae_path is not None:
+            config["load_vqvae_path"] = args.load_vqvae_path
 
     if args.progress_bar is not None:
         config["progress_bar"] = args.progress_bar
@@ -334,7 +344,7 @@ def validate_and_cast_config(config, args_mode):
     if lr_scheduler_params["total_iters"] <= 0:
         raise ValueError("total_iters must be a positive integer.")
 
-    if args_mode == 'train_ddpm':
+    if args_mode in ['train_ddpm', 'train_ldm']:
         config["n_train_timesteps"] = int(config["n_train_timesteps"])
         if config["n_train_timesteps"] <= 0:
             raise ValueError("n_train_timesteps must be a positive integer.")
@@ -447,49 +457,50 @@ def validate_and_cast_config(config, args_mode):
         if discriminator_params["num_channels"] <= 0:
             raise ValueError("num_layers_d in discriminator_params must be a positive integer.")
 
+    if args_mode in ['train_vqgan', 'train_ldm']:
         # Validate and cast model parameters
-        model_params = config["model_params"]
-        model_params["spatial_dims"] = int(model_params["spatial_dims"])
-        if model_params["spatial_dims"] not in [2, 3]:
+        vqvae_params = config["vqvae_params"]
+        vqvae_params["spatial_dims"] = int(vqvae_params["spatial_dims"])
+        if vqvae_params["spatial_dims"] not in [2, 3]:
             raise ValueError("spatial_dims in model_params must be 2 or 3.")
 
-        model_params["in_channels"] = int(model_params["in_channels"])
-        if model_params["in_channels"] <= 0:
+        vqvae_params["in_channels"] = int(vqvae_params["in_channels"])
+        if vqvae_params["in_channels"] <= 0:
             raise ValueError("in_channels in model_params must be a positive integer.")
 
-        model_params["out_channels"] = int(model_params["out_channels"])
-        if model_params["out_channels"] <= 0:
+        vqvae_params["out_channels"] = int(vqvae_params["out_channels"])
+        if vqvae_params["out_channels"] <= 0:
             raise ValueError("out_channels in model_params must be a positive integer.")
 
-        model_params["num_channels"] = [int(x) for x in model_params["num_channels"]]
-        if not all(x > 0 for x in model_params["num_channels"]):
+        vqvae_params["num_channels"] = [int(x) for x in vqvae_params["num_channels"]]
+        if not all(x > 0 for x in vqvae_params["num_channels"]):
             raise ValueError("All values in num_channels must be positive integers.")
 
-        model_params["num_res_channels"] = [int(x) for x in model_params["num_res_channels"]]
-        if not all(x > 0 for x in model_params["num_res_channels"]):
+        vqvae_params["num_res_channels"] = [int(x) for x in vqvae_params["num_res_channels"]]
+        if not all(x > 0 for x in vqvae_params["num_res_channels"]):
             raise ValueError("All values in num_res_channels must be positive integers.")
 
-        model_params["num_res_layers"] = int(model_params["num_res_layers"])
-        if model_params["num_res_layers"] <= 0:
+        vqvae_params["num_res_layers"] = int(vqvae_params["num_res_layers"])
+        if vqvae_params["num_res_layers"] <= 0:
             raise ValueError("num_res_layers must be a positive integer.")
 
-        model_params["downsample_parameters"] = [x if isinstance(x, tuple) else tuple(x) for x in model_params["downsample_parameters"]]
-        if not all(len(t) == 4 for t in model_params["downsample_parameters"]):
+        vqvae_params["downsample_parameters"] = [x if isinstance(x, tuple) else tuple(x) for x in vqvae_params["downsample_parameters"]]
+        if not all(len(t) == 4 for t in vqvae_params["downsample_parameters"]):
             raise ValueError("Each tuple in downsample_parameters must have exactly 4 elements.")
 
-        model_params["upsample_parameters"] = [tuple(map(int, x)) for x in model_params["upsample_parameters"]]
-        if not all(len(t) == 5 for t in model_params["upsample_parameters"]):
+        vqvae_params["upsample_parameters"] = [tuple(map(int, x)) for x in vqvae_params["upsample_parameters"]]
+        if not all(len(t) == 5 for t in vqvae_params["upsample_parameters"]):
             raise ValueError("Each tuple in upsample_parameters must have exactly 5 elements.")
 
-        model_params["num_embeddings"] = int(model_params["num_embeddings"])
-        if model_params["num_embeddings"] <= 0:
+        vqvae_params["num_embeddings"] = int(vqvae_params["num_embeddings"])
+        if vqvae_params["num_embeddings"] <= 0:
             raise ValueError("num_embeddings must be a positive integer.")
 
-        model_params["embedding_dim"] = int(model_params["embedding_dim"])
-        if model_params["embedding_dim"] <= 0:
+        vqvae_params["embedding_dim"] = int(vqvae_params["embedding_dim"])
+        if vqvae_params["embedding_dim"] <= 0:
             raise ValueError("embedding_dim must be a positive integer.")
 
-        model_params["use_checkpointing"] = bool(model_params["use_checkpointing"])
+        vqvae_params["use_checkpointing"] = bool(vqvae_params["use_checkpointing"])
 
     config["progress_bar"] = bool(config["progress_bar"])
     config["output_mode"] = str(config["output_mode"])

@@ -305,9 +305,9 @@ def main():
 
     img_shape = config['transformations']['resize_shape'] if config['transformations']['resize_shape'] \
         else config['transformations']['patch_size']
-    input_shape = (1, config['model_params']['in_channels'], *img_shape)
+    input_shape = (1, config['vqvae_params']['in_channels'], *img_shape)
 
-    network = VQVAE(**config['model_params']).to(device)
+    network = VQVAE(**config['vqvae_params']).to(device)
     summary(network, input_shape, batch_dim=None, depth=3)
 
     discriminator = PatchDiscriminator(**config['discriminator_params']).to(device)
