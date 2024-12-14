@@ -369,7 +369,6 @@ def main():
 
     train_loader, val_loader = get_data_loaders(config)
 
-    print(f"\nStarting training ddpm model...")
     img_shape = config['transformations']['resize_shape'] if config['transformations']['resize_shape'] \
         else config['transformations']['patch_size']
     input_shape = [(1, config['model_params']['in_channels'], *img_shape), (1,)]
@@ -390,4 +389,6 @@ def main():
         lr_scheduler = None
 
     model = DDPM(config=config, network=network, inferer=inferer, scheduler=scheduler, device=device, save_dict=save_dict)
+
+    print(f"\nStarting training ddpm model...")
     model.train(train_loader=train_loader, val_loader=val_loader, optimizer=optimizer, lr_scheduler=lr_scheduler)

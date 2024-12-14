@@ -328,6 +328,8 @@ def main():
         d_lr_scheduler = None
 
     model = VQGAN(config=config, network=network, device=device, save_dict=save_dict)
+
+    print(f"\nStarting training VQ-GAN model...")
     model.train(train_loader=train_loader, val_loader=val_loader, discriminator=discriminator,
                 perceptual_loss=perceptual_loss, optimizer_g=optimizer_g, optimizer_d=optimizer_d,
                 g_lr_scheduler=g_lr_scheduler, d_lr_scheduler=d_lr_scheduler)

@@ -94,6 +94,7 @@ diffusion model).
 
 ### Training
 
+#### Denoising Diffusion Probabilistic Model
 Here is an example to train a Denoising Diffusion Probabilistic Model on the
 Brain Tumour dataset from Medical Segmentation Decathlon:
 
@@ -103,19 +104,21 @@ train_ddpm --task Task01_BrainTumour --config ddpm_config --output_mode log
 We are using a custom configuration file, and we are saving every output in a 
 log file instead of printing on screen (--output_mode is not required).
 
+#### Latent Diffusion Model
 To train a Latent Diffusion Model, first we need to train a VQ-GAN:
 
 ```bash
 train_vqgan --task Task01_BrainTumour --config vqgan_config --output_mode log
 ```
-After finishing training, we can then train the Latent Diffusion Model, providing
-the path to the VQ-GAN checkpoint:
+After finishing training, we can then train the Latent Diffusion Model, optionally
+by adding the path to the VQ-GAN checkpoint in config file, or by providing it:
 
 ```bash
 train_ldm --task Task01_BrainTumour --config ldm_config --output_mode log \
---vqgan_checkpoint /path_to_vqgan_checkpoint
+--load_vqvae_path /path_to_vqgan_checkpoint
 ```
 
+#### Output Files
 Running an experiment will create a directory in your save_path. Depending 
 on your configuration the following folders or files will be created: 
 - checkpoints folder: the checkpoints of the last and the best epoch of the training 
@@ -132,3 +135,9 @@ perform a validation step. For ddpm and ldm, the gifs contain slices of a genera
 reconstruction are visualized.
 
 ### Sampling
+
+To sample with your favorite DDPM run:
+
+```bash
+sample_images --model_path /path_to_ddpm_checkpoint --config ddpm_config --n_images 10 --save_path /path_to_save_folder
+```

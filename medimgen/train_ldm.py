@@ -37,6 +37,7 @@ class LDM:
 
     def train_one_epoch(self, epoch, train_loader, z_shape, optimizer, scaler, lr_scheduler=None):
         self.network.train()
+        self.vqvae.eval()
         epoch_loss = 0
         disable_prog_bar = self.config['output_mode'] == 'log' or not self.config['progress_bar']
         start = time.time()
@@ -46,9 +47,9 @@ class LDM:
             for step, batch in progress_bar:
                 images = batch["image"].to(self.device)
                 optimizer.zero_grad(set_to_none=True)
-                noise = torch.randn(*z_shape).to(self.device)
 
                 with autocast(enabled=True):
+                    noise = torch.randn(*z_shape).to(self.device)
                     timesteps = torch.randint(0, self.inferer.scheduler.num_train_timesteps, (images.shape[0],),
                                               device=images.device).long()
                     noise_pred = self.inferer(inputs=images, autoencoder_model=self.vqvae, diffusion_model=self.network, noise=noise, timesteps=timesteps)
@@ -77,6 +78,7 @@ class LDM:
 
     def validate_epoch(self, val_loader, z_shape):
         self.network.eval()
+        self.vqvae.eval()
         val_epoch_loss = 0
         disable_prog_bar = self.config['output_mode'] == 'log' or not self.config['progress_bar']
         start = time.time()
@@ -84,10 +86,10 @@ class LDM:
         with tqdm(enumerate(val_loader), total=len(val_loader), ncols=100, disable=disable_prog_bar, file=sys.stdout) as val_progress_bar:
             for step, batch in val_progress_bar:
                 images = batch["image"].to(self.device)
-                noise = torch.randn(*z_shape).to(self.device)
 
                 with torch.no_grad():
                     with autocast(enabled=True):
+                        noise = torch.randn(*z_shape).to(self.device)
                         timesteps = torch.randint(0, self.inferer.scheduler.num_train_timesteps, (images.shape[0],),
                                                   device=images.device).long()
                         noise_pred = self.inferer(inputs=images, autoencoder_model=self.vqvae, diffusion_model=self.network, noise=noise, timesteps=timesteps)
@@ -104,12 +106,14 @@ class LDM:
         return val_epoch_loss / len(val_loader)
 
     def sample_image(self, z_shape, verbose=False):
+        self.network.eval()
+        self.vqvae.eval()
         image = torch.randn(1, *z_shape[1:]).to(self.device)
         self.scheduler.set_timesteps(num_inference_steps=self.config['n_infer_timesteps'])
-
-        with autocast(enabled=True):
-            image = self.inferer.sample(input_noise=image, autoencoder_model=self.vqvae, diffusion_model=self.network, scheduler=self.scheduler,
-                                        verbose=verbose)
+        with torch.no_grad():
+            with autocast(enabled=True):
+                image = self.inferer.sample(input_noise=image, autoencoder_model=self.vqvae, diffusion_model=self.network, scheduler=self.scheduler,
+                                            verbose=verbose)
         return image
 
     def save_plots(self, sampled_image, gif_output_path, epoch_loss_list=None, val_epoch_loss_list=None):
@@ -232,32 +236,39 @@ def main():
 
     train_loader, val_loader = get_data_loaders(config)
 
-    print(f"\nStarting training ldm model...")
     scheduler = DDPMScheduler(num_train_timesteps=config['n_train_timesteps'], schedule=config['time_scheduler'],
                               beta_start=0.0015, beta_end=0.0195)
     # load vq-vae
+    print(f"Loading VQ-VAE checkpoint from {config['load_vqvae_path']}...")
     checkpoint = torch.load(config['load_vqvae_path'])
     vqvae = VQVAE(**config['vqvae_params']).to(device)
     vqvae.load_state_dict(checkpoint['network_state_dict'])
     vqvae.eval()
 
-    check_image = next(iter(train_loader))['image'][0]
-    check_image = torch.unsqueeze(check_image, dim=0) if len(check_image.shape) < 5 else check_image
+    check_batch = next(iter(train_loader))['image']
     with torch.no_grad():
         with autocast(enabled=True):
-            z = vqvae.encode_stage_2_inputs(check_image.to(device))
+            z = vqvae.encode_stage_2_inputs(check_batch.to(device))
+
+    # for batch in train_loader:
+    #     images = batch['image']
+    #     with torch.no_grad():
+    #         with autocast(enabled=True):
+    #             z = vqvae.encode_stage_2_inputs(images.to(device))
+    #             print(torch.min(z), torch.max(z))
 
     z_shape = tuple(z.shape)
     print(f"Latent shape: {z_shape}")
-    print(f"Scaling factor set to {1 / torch.std(z)}")
-    scale_factor = 1 / torch.std(z)
+    # print(f"Scaling factor set to {1 / torch.std(z)}")
+    # scale_factor = 1 / torch.std(z)
 
     input_shape = [(1, *z_shape[1:]), (1,)]
     network = DiffusionModelUNet(**config['model_params'])
     network.to(device)
     summary(network, input_shape, batch_dim=None, depth=3)
 
-    inferer = LatentDiffusionInferer(scheduler, scale_factor=scale_factor)
+    # inferer = LatentDiffusionInferer(scheduler, scale_factor=scale_factor)
+    inferer = LatentDiffusionInferer(scheduler)
 
     optimizer = torch.optim.Adam(params=network.parameters(), lr=config['learning_rate'])
 
@@ -268,4 +279,6 @@ def main():
         lr_scheduler = None
 
     model = LDM(config=config, network=network, vqvae=vqvae, inferer=inferer, scheduler=scheduler, device=device, save_dict=save_dict)
+
+    print(f"\nStarting training ldm model...")
     model.train(train_loader=train_loader, val_loader=val_loader, z_shape=z_shape, optimizer=optimizer, lr_scheduler=lr_scheduler)
