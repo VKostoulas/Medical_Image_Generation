@@ -259,16 +259,16 @@ def main():
 
     z_shape = tuple(z.shape)
     print(f"Latent shape: {z_shape}")
-    # print(f"Scaling factor set to {1 / torch.std(z)}")
-    # scale_factor = 1 / torch.std(z)
+    print(f"Scaling factor set to {1 / torch.std(z)}")
+    scale_factor = 1 / torch.std(z)
 
     input_shape = [(1, *z_shape[1:]), (1,)]
     network = DiffusionModelUNet(**config['model_params'])
     network.to(device)
     summary(network, input_shape, batch_dim=None, depth=3)
 
-    # inferer = LatentDiffusionInferer(scheduler, scale_factor=scale_factor)
-    inferer = LatentDiffusionInferer(scheduler)
+    inferer = LatentDiffusionInferer(scheduler, scale_factor=scale_factor)
+    # inferer = LatentDiffusionInferer(scheduler)
 
     optimizer = torch.optim.Adam(params=network.parameters(), lr=config['learning_rate'])
 
