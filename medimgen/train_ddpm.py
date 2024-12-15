@@ -200,10 +200,6 @@ class DDPM:
                 epoch_loss += loss.item()
                 progress_bar.set_postfix({"loss": epoch_loss / (step + 1)})
 
-        if lr_scheduler:
-            lr_scheduler.step()
-            print(f"Adjusting learning rate to {lr_scheduler.get_last_lr()[0]:.4e}.")
-
         # Log epoch loss
         if disable_prog_bar:
             end = time.time() - start
@@ -342,6 +338,10 @@ class DDPM:
                     self.save_plots(sampled_image, gif_output_path, epoch_loss_list, val_epoch_loss_list)
                 if self.save_dict['checkpoints']:
                     self.save_model(epoch, val_loss, optimizer, lr_scheduler)
+
+            if lr_scheduler:
+                lr_scheduler.step()
+                print(f"Adjusting learning rate to {lr_scheduler.get_last_lr()[0]:.4e}.")
 
         total_time = time.time() - total_start
         print(f"Training completed in {total_time:.2f} seconds.")

@@ -73,6 +73,9 @@ def parse_arguments(description, args_mode):
     if args_mode == 'train_vqgan':
         parser.add_argument("--g_learning_rate", type=float, help="Generator learning rate")
         parser.add_argument("--d_learning_rate", type=float, help="Discriminator learning rate")
+
+        parser.add_argument("--vqvae_warm_up_epochs", type=int, help="Number of epochs to warm up vqvae")
+
         parser.add_argument("--adv_weight", type=float, help="Adversarial loss weight")
         parser.add_argument("--perc_weight", type=float, help="Perceptual loss weight")
         parser.add_argument("--q_weight", type=float, help="Quantization loss weight")
@@ -212,6 +215,8 @@ def update_config_with_args(config, args, args_mode):
             config["g_learning_rate"] = args.g_learning_rate
         if args.d_learning_rate is not None:
             config["d_learning_rate"] = args.d_learning_rate
+        if args.vqvae_warm_up_epochs is not None:
+            config["vqvae_warm_up_epochs"] = args.vqvae_warm_up_epochs
         if args.adv_weight is not None:
             config["adv_weight"] = args.adv_weight
         if args.perc_weight is not None:
@@ -404,6 +409,10 @@ def validate_and_cast_config(config, args_mode):
         config["d_learning_rate"] = float(config["d_learning_rate"])
         if config["d_learning_rate"] <= 0:
             raise ValueError("d_learning_rate must be a positive number.")
+
+        config["vqvae_warm_up_epochs"] = int(config["vqvae_warm_up_epochs"])
+        if config["vqvae_warm_up_epochs"] < 0:
+            raise ValueError("n_infer_timesteps must be 0 or a positive integer.")
 
         config["adv_weight"] = float(config["adv_weight"])
         if config["adv_weight"] < 0:

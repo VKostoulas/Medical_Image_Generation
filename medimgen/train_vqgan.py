@@ -35,7 +35,7 @@ class VQGAN:
         self.adv_loss = PatchAdversarialLoss(criterion="least_squares")
 
     def train_one_epoch(self, epoch, train_loader, discriminator, perceptual_loss, optimizer_g, optimizer_d, scaler_g,
-                        scaler_d , g_lr_scheduler, d_lr_scheduler):
+                        scaler_d):
         self.network.train()
         discriminator.train()
         epoch_recon_loss = 0
@@ -54,56 +54,48 @@ class VQGAN:
                 optimizer_g.zero_grad(set_to_none=True)
                 with autocast(enabled=True):
                     reconstructions, quantization_loss = self.network(images=images)
-                    logits_fake = discriminator(reconstructions.contiguous().float())[-1]
-
                     recons_loss = self.l1_loss(reconstructions.float(), images.float())
                     p_loss = perceptual_loss(reconstructions.float(), images.float())
-                    generator_loss = self.adv_loss(logits_fake, target_is_real=True, for_discriminator=False)
+                    loss_g = recons_loss + quantization_loss * self.config['q_weight'] + p_loss * self.config['perc_weight']
 
-                    loss_g = (recons_loss + quantization_loss * self.config['q_weight'] +
-                              p_loss * self.config['perc_weight'] +
-                              generator_loss * self.config['adv_weight'])
+                    if epoch >= self.config['vqvae_warm_up_epochs']:
+                        logits_fake = discriminator(reconstructions.contiguous().float())[-1]
+                        generator_loss = self.adv_loss(logits_fake, target_is_real=True, for_discriminator=False)
+                        loss_g += generator_loss * self.config['adv_weight']
 
                 scaler_g.scale(loss_g).backward()
-                scaler_g.unscale_(optimizer_g)
-                torch.nn.utils.clip_grad_norm_(self.network.parameters(), max_norm=1.0)
+                # scaler_g.unscale_(optimizer_g)
+                # torch.nn.utils.clip_grad_norm_(self.network.parameters(), max_norm=1.0)
                 scaler_g.step(optimizer_g)
                 scaler_g.update()
 
                 # Discriminator part
-                optimizer_d.zero_grad(set_to_none=True)
-                with autocast(enabled=True):
-                    logits_fake = discriminator(reconstructions.contiguous().detach())[-1]
-                    loss_d_fake = self.adv_loss(logits_fake, target_is_real=False, for_discriminator=True)
-                    logits_real = discriminator(images.contiguous().detach())[-1]
-                    loss_d_real = self.adv_loss(logits_real, target_is_real=True, for_discriminator=True)
+                if epoch >= self.config['vqvae_warm_up_epochs']:
+                    optimizer_d.zero_grad(set_to_none=True)
+                    with autocast(enabled=True):
+                        logits_fake = discriminator(reconstructions.contiguous().detach())[-1]
+                        loss_d_fake = self.adv_loss(logits_fake, target_is_real=False, for_discriminator=True)
+                        logits_real = discriminator(images.contiguous().detach())[-1]
+                        loss_d_real = self.adv_loss(logits_real, target_is_real=True, for_discriminator=True)
+                        discriminator_loss = (loss_d_fake + loss_d_real) * 0.5
+                        loss_d = self.config['adv_weight'] * discriminator_loss
 
-                    discriminator_loss = (loss_d_fake + loss_d_real) * 0.5
-                    loss_d = self.config['adv_weight'] * discriminator_loss
-
-                scaler_d.scale(loss_d).backward()
-                scaler_d.unscale_(optimizer_d)
-                torch.nn.utils.clip_grad_norm_(discriminator.parameters(), max_norm=1.0)
-                scaler_d.step(optimizer_d)
-                scaler_d.update()
+                    scaler_d.scale(loss_d).backward()
+                    # scaler_d.unscale_(optimizer_d)
+                    # torch.nn.utils.clip_grad_norm_(discriminator.parameters(), max_norm=1.0)
+                    scaler_d.step(optimizer_d)
+                    scaler_d.update()
 
                 epoch_recon_loss += recons_loss.item()
-                epoch_gen_loss += generator_loss.item()
-                epoch_disc_loss += discriminator_loss.item()
+                if epoch >= self.config['vqvae_warm_up_epochs']:
+                    epoch_gen_loss += generator_loss.item()
+                    epoch_disc_loss += discriminator_loss.item()
 
                 progress_bar.set_postfix({
                     "recons_loss": epoch_recon_loss / (step + 1),
                     "gen_loss": epoch_gen_loss / (step + 1),
                     "disc_loss": epoch_disc_loss / (step + 1),
                 })
-
-        if g_lr_scheduler:
-            g_lr_scheduler.step()
-            print(f"Adjusting learning rate of generator to {g_lr_scheduler.get_last_lr()[0]:.4e}.")
-
-        if d_lr_scheduler:
-            d_lr_scheduler.step()
-            print(f"Adjusting learning rate of discriminator to {d_lr_scheduler.get_last_lr()[0]:.4e}.")
 
         if disable_prog_bar:
             end = time.time() - start
@@ -258,8 +250,7 @@ class VQGAN:
 
         for epoch in range(start_epoch, self.config['n_epochs']):
             recon_loss, gen_loss, disc_loss = self.train_one_epoch(epoch, train_loader, discriminator, perceptual_loss,
-                                                                   optimizer_g, optimizer_d, scaler_g, scaler_d,
-                                                                   g_lr_scheduler, d_lr_scheduler)
+                                                                   optimizer_g, optimizer_d, scaler_g, scaler_d)
             recon_loss_list.append(recon_loss)
             gen_loss_list.append(gen_loss)
             disc_loss_list.append(disc_loss)
@@ -278,6 +269,14 @@ class VQGAN:
                 if self.save_dict['checkpoints']:
                     self.save_model(epoch, val_loss, optimizer_g, discriminator, optimizer_d, scheduler=g_lr_scheduler,
                                     disc_scheduler=d_lr_scheduler)
+
+            if g_lr_scheduler:
+                g_lr_scheduler.step()
+                print(f"Adjusting learning rate of generator to {g_lr_scheduler.get_last_lr()[0]:.4e}.")
+
+            if d_lr_scheduler:
+                d_lr_scheduler.step()
+                print(f"Adjusting learning rate of discriminator to {d_lr_scheduler.get_last_lr()[0]:.4e}.")
 
         total_time = time.time() - total_start
         print(f"Training completed in {total_time:.2f} seconds.")
