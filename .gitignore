@@ -15,7 +15,7 @@
 !medimgen/preprocess_dataset.py
 !medimgen/train_ddpm.py
 !medimgen/train_ldm.py
-!medimgen/train_vqgan.py
+!medimgen/train_autoencoder.py
 !medimgen/utils.py
 
 # Allow the folder

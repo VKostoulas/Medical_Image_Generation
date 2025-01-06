@@ -10,10 +10,144 @@ from datetime import datetime
 
 def load_config(config_name):
     """Load default configuration from a YAML file."""
-    conf_path = os.path.join(os.getcwd(), 'medimgen', 'configs', config_name + '.yaml') \
-        if config_name else "./medimgen/configs/config.yaml"
+    if config_name:
+        final_config_name = config_name
+    else:
+        final_config_name = 'config'
+    conf_path = os.path.join(os.getcwd(), 'medimgen', 'configs', final_config_name + '.yaml')
     with open(conf_path, "r") as file:
-        return yaml.safe_load(file)
+        config_file = yaml.safe_load(file)
+        config_file['config'] = final_config_name
+        return config_file
+
+
+def add_preprocessing_args(parser):
+    parser.add_argument("--intensity", type=lambda x: x.lower() == 'true', help="Enable normalization during dataset processing.")
+
+
+def add_training_args(parser):
+    parser.add_argument("--config", type=str, help="Configuration file name")
+    parser.add_argument("--splitting", nargs=2, type=float, help="Split ratios for train, val")
+    parser.add_argument("--channels", nargs='+', type=int, help="List of channel indices or None")
+    parser.add_argument("--batch_size", type=int, help="Batch size")
+    parser.add_argument("--n_epochs", type=int, help="Number of epochs")
+    parser.add_argument("--val_interval", type=int, help="Validation interval")
+    # Parsing arguments for lr_scheduler
+    parser.add_argument("--lr_scheduler", type=str, help="Type of learning rate scheduler")
+    parser.add_argument("--start_factor", type=float, help="Start factor for learning rate scheduler")
+    parser.add_argument("--end_factor", type=float, help="End factor for learning rate scheduler")
+    parser.add_argument("--total_iters", type=int, help="Total iterations for the learning rate scheduler")
+    parser.add_argument("--load_model_path", type=str, help="Path to checkpoint of pretrained model")
+
+
+def add_transformation_args(parser):
+    parser.add_argument("--patch_size", nargs=3, type=int, help="Center crop size")
+    parser.add_argument("--resize_shape", nargs=3, type=int, help="Resized size")
+    parser.add_argument("--elastic", type=lambda x: x.lower() == 'true', help="Enable elastic transformations")
+    parser.add_argument("--scaling", type=lambda x: x.lower() == 'true', help="Enable scaling transformations")
+    parser.add_argument("--rotation", type=lambda x: x.lower() == 'true', help="Enable rotation transformations")
+    parser.add_argument("--gaussian_noise", type=lambda x: x.lower() == 'true', help="Enable Gaussian noise")
+    parser.add_argument("--gaussian_blur", type=lambda x: x.lower() == 'true', help="Enable Gaussian blur")
+    parser.add_argument("--brightness", type=lambda x: x.lower() == 'true', help="Enable brightness adjustment")
+    parser.add_argument("--contrast", type=lambda x: x.lower() == 'true', help="Enable contrast adjustment")
+    parser.add_argument("--gamma", type=lambda x: x.lower() == 'true', help="Enable gamma adjustment")
+    parser.add_argument("--mirror", type=lambda x: x.lower() == 'true', help="Enable mirroring")
+    parser.add_argument("--dummy_2D", type=lambda x: x.lower() == 'true', help="Enable dummy 2D mode")
+
+
+def add_ddpm_args(parser):
+    parser.add_argument("--ddpm_learning_rate", type=float, help="Learning rate")
+    parser.add_argument("--time_scheduler_num_train_timesteps", type=int, help="Number of training timesteps")
+    # parser.add_argument("--time_scheduler_n_infer_timesteps", type=int, help="Number of inference timesteps")
+    parser.add_argument("--time_scheduler_schedule", type=str, help="Time scheduler type")
+    parser.add_argument("--time_scheduler_beta_start", type=float, help="Beta start for scheduler")
+    parser.add_argument("--time_scheduler_beta_end", type=float, help="Beta end for scheduler")
+    parser.add_argument("--time_scheduler_prediction_type", type=str, help="DDPM prediction type ('epsilon' or 'v_prediction')")
+
+    parser.add_argument("--ddpm_spatial_dims", type=int, help="Spatial dimensions")
+    parser.add_argument("--ddpm_in_channels", type=int, help="Number of input channels")
+    parser.add_argument("--ddpm_out_channels", type=int, help="Number of output channels")
+    parser.add_argument("--ddpm_num_channels", nargs='+', type=int, help="List of channel numbers for the model")
+    parser.add_argument("--ddpm_attention_levels", nargs='+', type=lambda x: x.lower() == 'true',
+                        help="List of attention levels")
+    parser.add_argument("--ddpm_num_head_channels", nargs='+', type=int, help="List of head channel numbers")
+    parser.add_argument("--ddpm_num_res_blocks", type=int, help="Number of residual blocks")
+    parser.add_argument("--ddpm_norm_num_groups", type=int, help="Number of groups for normalization")
+    parser.add_argument("--ddpm_use_flash_attention", type=lambda x: x.lower() == 'true',
+                        help="Use flash attention for speed and memory efficiency")
+
+def add_vqvae_args(parser):
+    parser.add_argument("--vqvae_spatial_dims", type=int, help="Spatial dimensions for model parameters")
+    parser.add_argument("--vqvae_in_channels", type=int, help="Number of input channels for the model")
+    parser.add_argument("--vqvae_out_channels", type=int, help="Number of output channels for the model")
+    parser.add_argument("--vqvae_num_channels", nargs='+', type=int, help="List of channel numbers for the model")
+    parser.add_argument("--vqvae_num_res_channels", nargs='+', type=int,
+                        help="Number of residual channels in the model")
+    parser.add_argument("--vqvae_num_res_layers", type=int, help="Number of residual layers in the model")
+    parser.add_argument("--vqvae_downsample_parameters", nargs='+', type=eval,
+                        help="Parameters for downsampling in the model")
+    parser.add_argument("--vqvae_upsample_parameters", nargs='+', type=eval,
+                        help="Parameters for upsampling in the model")
+    parser.add_argument("--vqvae_num_embeddings", type=int, help="Number of embeddings for the model")
+    parser.add_argument("--vqvae_embedding_dim", type=int, help="Embedding dimension for the model")
+    parser.add_argument("--vqvae_use_checkpointing", type=lambda x: x.lower() == 'true',
+                        help="Use activation checkpointing")
+
+
+def add_vae_args(parser):
+    parser.add_argument("--vae_spatial_dims", type=int, help="Spatial dimensions for VAE model")
+    parser.add_argument("--vae_in_channels", type=int, help="Number of input channels for the VAE model")
+    parser.add_argument("--vae_out_channels", type=int, help="Number of output channels for the VAE model")
+    parser.add_argument("--vae_num_channels", nargs='+', type=int,
+                        help="List of channel numbers for the VAE model")
+    parser.add_argument("--vae_latent_channels", type=int, help="Number of latent channels for the VAE model")
+    parser.add_argument("--vae_num_res_blocks", type=int, help="Number of residual blocks in the VAE model")
+    parser.add_argument("--vae_norm_num_groups", type=int,
+                        help="Number of groups for normalization in the VAE model")
+    parser.add_argument("--vae_attention_levels", nargs='+', type=lambda x: x.lower() in ['true', 'false'],
+                        help="List of attention levels (True/False) for the VAE model")
+    parser.add_argument("--vae_with_encoder_nonlocal_attn", type=lambda x: x.lower() == 'true',
+                        help="Use non-local attention in the VAE encoder")
+    parser.add_argument("--vae_with_decoder_nonlocal_attn", type=lambda x: x.lower() == 'true',
+                        help="Use non-local attention in the VAE decoder")
+    parser.add_argument("--vae_use_flash_attention", type=lambda x: x.lower() == 'true',
+                        help="Use flash attention for VAE")
+    parser.add_argument("--vae_use_checkpointing", type=lambda x: x.lower() == 'true',
+                        help="Use activation checkpointing for VAE")
+    parser.add_argument("--vae_use_convtranspose", type=lambda x: x.lower() == 'true',
+                        help="Use ConvTranspose layers in the VAE")
+
+
+def add_autoencoder_training_args(parser):
+    parser.add_argument("--g_learning_rate", type=float, help="Generator learning rate")
+    parser.add_argument("--d_learning_rate", type=float, help="Discriminator learning rate")
+    parser.add_argument("--autoencoder_warm_up_epochs", type=int, help="Number of epochs to warm up vqvae")
+    parser.add_argument("--adv_weight", type=float, help="Adversarial loss weight")
+    parser.add_argument("--perc_weight", type=float, help="Perceptual loss weight")
+    # Perceptual parameters
+    parser.add_argument("--perceptual_spatial_dims", type=int, help="Spatial dimensions for perceptual parameters")
+    parser.add_argument("--network_type", type=str, help="Type of perceptual network")
+    parser.add_argument("--is_fake_3d", type=lambda x: x.lower() == 'true',
+                        help="Flag to indicate if fake 3D is used")
+    parser.add_argument("--fake_3d_ratio", type=float, help="Ratio for fake 3D")
+    # Discriminator parameters
+    parser.add_argument("--discriminator_spatial_dims", type=int,
+                        help="Spatial dimensions for discriminator parameters")
+    parser.add_argument("--discriminator_in_channels", type=int, help="Number of input channels for discriminator")
+    parser.add_argument("--discriminator_out_channels", type=int,
+                        help="Number of output channels for discriminator")
+    parser.add_argument("--discriminator_num_channels", type=int, help="Number of channels in the discriminator")
+    parser.add_argument("--discriminator_num_layers_d", type=int, help="Number of layers of discriminator")
+
+
+def add_additional_args(parser):
+    parser.add_argument("--progress_bar", type=lambda x: x.lower() == 'true', help="Use progress bars")
+    parser.add_argument("--output_mode", type=str, help="Output mode")
+    parser.add_argument("--save_model", type=lambda x: x.lower() == 'true', help="Whether to save the model")
+    parser.add_argument("--save_graph", type=lambda x: x.lower() == 'true',
+                        help="Whether to save the computation graph")
+    parser.add_argument("--save_plots", type=lambda x: x.lower() == 'true', help="Whether to save plots")
+    parser.add_argument("--save_profile", type=lambda x: x.lower() == 'true', help="Whether to save the profile")
 
 
 def parse_arguments(description, args_mode):
@@ -21,108 +155,46 @@ def parse_arguments(description, args_mode):
 
     parser.add_argument("--task", required=True, type=str, help="Task identifier")
 
+    # Add mode-specific arguments
     if args_mode == 'preprocess_data':
-        parser.add_argument("-intensity", action="store_true",
-                            help="Enable normalization during the dataset processing.")
-    if args_mode != 'preprocess_data':
-        parser.add_argument("--config", type=str, help="Configuration file name")
-        parser.add_argument("--splitting", nargs=2, type=float, help="Split ratios for train, val")
-        parser.add_argument("--channels", nargs='+', type=int, help="List of channel indices or None")
+        add_preprocessing_args(parser)
 
-        parser.add_argument("--patch_size", nargs=3, type=int, help="Center crop size")
-        parser.add_argument("--resize_shape", nargs=3, type=int, help="Resized size")
-        parser.add_argument("--elastic", type=lambda x: x.lower() == 'true', help="Enable elastic transformations")
-        parser.add_argument("--scaling", type=lambda x: x.lower() == 'true', help="Enable scaling transformations")
-        parser.add_argument("--rotation", type=lambda x: x.lower() == 'true', help="Enable rotation transformations")
-        parser.add_argument("--gaussian_noise", type=lambda x: x.lower() == 'true', help="Enable Gaussian noise")
-        parser.add_argument("--gaussian_blur", type=lambda x: x.lower() == 'true', help="Enable Gaussian blur")
-        parser.add_argument("--brightness", type=lambda x: x.lower() == 'true', help="Enable brightness adjustment")
-        parser.add_argument("--contrast", type=lambda x: x.lower() == 'true', help="Enable contrast adjustment")
-        parser.add_argument("--gamma", type=lambda x: x.lower() == 'true', help="Enable gamma adjustment")
-        parser.add_argument("--mirror", type=lambda x: x.lower() == 'true', help="Enable mirroring")
-        parser.add_argument("--dummy_2D", type=lambda x: x.lower() == 'true', help="Enable dummy 2D mode")
+    elif args_mode in ['train_ddpm', 'train_autoencoder', 'train_ldm']:
+        add_training_args(parser)
+        add_transformation_args(parser)
 
-        parser.add_argument("--batch_size", type=int, help="Batch size")
-        parser.add_argument("--n_epochs", type=int, help="Number of epochs")
-        parser.add_argument("--val_interval", type=int, help="Validation interval")
+        if args_mode in ['train_autoencoder', 'train_ldm']:
+            # Latent space type
+            parser.add_argument("--latent_space_type", type=str, default="vae", choices=["vae", "vq"],
+                                help="Type of latent space to use: 'vae' or 'vq'. Default is 'vae'.")
 
-        # Parsing arguments for lr_scheduler
-        parser.add_argument("--lr_scheduler", type=str, help="Type of learning rate scheduler")
-        parser.add_argument("--start_factor", type=float, help="Start factor for learning rate scheduler")
-        parser.add_argument("--end_factor", type=float, help="End factor for learning rate scheduler")
-        parser.add_argument("--total_iters", type=int, help="Total iterations for the learning rate scheduler")
+            # Parse the known arguments so far to determine latent_space_type
+            temp_args, _ = parser.parse_known_args()
+            latent_space_type = temp_args.latent_space_type if hasattr(temp_args, 'latent_space_type') else 'vae'
 
-        parser.add_argument("--load_model_path", type=str, help="Path to checkpoint of pretrained model")
+            if latent_space_type == 'vq':
+                if args_mode == 'train_autoencoder':
+                    parser.add_argument("--q_weight", type=float, help="Quantization loss weight")
+                    add_vqvae_args(parser)
 
-    if args_mode in ['train_ddpm', 'train_ldm']:
+            elif latent_space_type == 'vae':
+                if args_mode == 'train_autoencoder':
+                    parser.add_argument("--kl_weight", type=float, help="KL divergence loss weight (used for VAE).")
+                    add_vae_args(parser)
 
-        parser.add_argument("--n_train_timesteps", type=int, help="Number of training timesteps")
-        parser.add_argument("--n_infer_timesteps", type=int, help="Number of inference timesteps")
-        parser.add_argument("--time_scheduler", type=str, help="Time scheduler type")
-        parser.add_argument("--learning_rate", type=float, help="Learning rate")
-        parser.add_argument("--spatial_dims", type=int, help="Spatial dimensions")
-        parser.add_argument("--in_channels", type=int, help="Number of input channels")
-        parser.add_argument("--out_channels", type=int, help="Number of output channels")
-        parser.add_argument("--num_channels", nargs='+', type=int, help="List of channel numbers for the model")
-        parser.add_argument("--attention_levels", nargs='+', type=lambda x: x.lower() == 'true', help="List of attention levels")
-        parser.add_argument("--num_head_channels", nargs='+', type=int, help="List of head channel numbers")
-        parser.add_argument("--num_res_blocks", type=int, help="Number of residual blocks")
-        parser.add_argument("--norm_num_groups", type=int, help="Number of groups for normalization")
-        parser.add_argument("--use_flash_attention", type=lambda x: x.lower() == 'true', help="Use flash attention for speed and memory efficiency")
+        if args_mode == 'train_autoencoder':
+            add_autoencoder_training_args(parser)
 
-    if args_mode == 'train_vqgan':
-        parser.add_argument("--g_learning_rate", type=float, help="Generator learning rate")
-        parser.add_argument("--d_learning_rate", type=float, help="Discriminator learning rate")
+        if args_mode in ['train_ddpm', 'train_ldm']:
+            add_ddpm_args(parser)
 
-        parser.add_argument("--vqvae_warm_up_epochs", type=int, help="Number of epochs to warm up vqvae")
+        if args_mode == 'train_ldm':
+            parser.add_argument("--load_autoencoder_path", type=str, required=True,
+                                help="Path to checkpoint of pretrained autoencoder (VQ-VAE or VAE).")
 
-        parser.add_argument("--adv_weight", type=float, help="Adversarial loss weight")
-        parser.add_argument("--perc_weight", type=float, help="Perceptual loss weight")
-        parser.add_argument("--q_weight", type=float, help="Quantization loss weight")
+        add_additional_args(parser)
 
-        # Perceptual parameters
-        parser.add_argument("--perceptual_spatial_dims", type=int, help="Spatial dimensions for perceptual parameters")
-        parser.add_argument("--network_type", type=str, help="Type of perceptual network")
-        parser.add_argument("--is_fake_3d", type=lambda x: x.lower() == 'true',
-                            help="Flag to indicate if fake 3D is used")
-        parser.add_argument("--fake_3d_ratio", type=float, help="Ratio for fake 3D")
-
-        # Discriminator parameters
-        parser.add_argument("--discriminator_spatial_dims", type=int,
-                            help="Spatial dimensions for discriminator parameters")
-        parser.add_argument("--discriminator_in_channels", type=int, help="Number of input channels for discriminator")
-        parser.add_argument("--discriminator_out_channels", type=int,
-                            help="Number of output channels for discriminator")
-        parser.add_argument("--discriminator_num_channels", type=int, help="Number of channels in the discriminator")
-        parser.add_argument("--discriminator_num_layers_d", type=int, help="Number of layers of discriminator")
-
-    # VQVAE parameters
-    if args_mode in ['train_vqgan', 'train_ldm']:
-        parser.add_argument("--vqvae_spatial_dims", type=int, help="Spatial dimensions for model parameters")
-        parser.add_argument("--vqvae_in_channels", type=int, help="Number of input channels for the model")
-        parser.add_argument("--vqvae_out_channels", type=int, help="Number of output channels for the model")
-        parser.add_argument("--vqvae_num_channels", nargs='+', type=int, help="List of channel numbers for the model")
-        parser.add_argument("--vqvae_num_res_channels", nargs='+', type=int, help="Number of residual channels in the model")
-        parser.add_argument("--vqvae_num_res_layers", type=int, help="Number of residual layers in the model")
-        parser.add_argument("--vqvae_downsample_parameters", nargs='+', type=eval,
-                            help="Parameters for downsampling in the model")
-        parser.add_argument("--vqvae_upsample_parameters", nargs='+', type=eval,
-                            help="Parameters for upsampling in the model")
-        parser.add_argument("--vqvae_num_embeddings", type=int, help="Number of embeddings for the model")
-        parser.add_argument("--vqvae_embedding_dim", type=int, help="Embedding dimension for the model")
-        parser.add_argument("--vqvae_use_checkpointing", type=lambda x: x.lower() == 'true', help="Use activation checkpointing")
-
-    if args_mode != 'preprocess_data':
-        parser.add_argument("--progress_bar", type=lambda x: x.lower() == 'true', help="Use progress bars")
-        parser.add_argument("--output_mode", type=str, help="Output mode")
-        parser.add_argument("--save_model", type=lambda x: x.lower() == 'true', help="Whether to save the model")
-        parser.add_argument("--save_graph", type=lambda x: x.lower() == 'true', help="Whether to save the computation graph")
-        parser.add_argument("--save_plots", type=lambda x: x.lower() == 'true', help="Whether to save plots")
-        parser.add_argument("--save_profile", type=lambda x: x.lower() == 'true', help="Whether to save the profile")
-
-    if args_mode == 'train_ldm':
-        parser.add_argument("--load_vqvae_path", type=str, help="Path to checkpoint of pretrained vqvae")
-
+    # Parse and return arguments
     return parser.parse_args()
 
 
@@ -130,395 +202,147 @@ def update_config_with_args(config, args, args_mode):
     config["task"] = str(args.task)
     config["data_path"] = str(os.getenv('DATAPATH'))
     config["save_path"] = str(os.getenv('SAVEPATH'))
-    config["config"] = str(args.config)
 
     # Update config only if arguments were provided
-    if args.splitting is not None:
-        config["splitting"] = args.splitting
-    if args.channels is not None:
-        config["channels"] = args.channels
+    if args_mode in ['train_ddpm', 'train_autoencoder', 'train_ldm']:
+        if args.splitting is not None:
+            config["splitting"] = args.splitting
+        if args.channels is not None:
+            config["channels"] = args.channels
 
-    if args.patch_size is not None:
-        config["transformations"]["patch_size"] = args.patch_size
-    if args.resize_shape is not None:
-        config["transformations"]["resize_shape"] = args.resize_shape
-    if args.elastic is not None:
-        config["transformations"]["elastic"] = args.elastic
-    if args.scaling is not None:
-        config["transformations"]["scaling"] = args.scaling
-    if args.rotation is not None:
-        config["transformations"]["rotation"] = args.rotation
-    if args.gaussian_noise is not None:
-        config["transformations"]["gaussian_noise"] = args.gaussian_noise
-    if args.gaussian_blur is not None:
-        config["transformations"]["gaussian_blur"] = args.gaussian_blur
-    if args.brightness is not None:
-        config["transformations"]["brightness"] = args.brightness
-    if args.contrast is not None:
-        config["transformations"]["contrast"] = args.contrast
-    if args.gamma is not None:
-        config["transformations"]["gamma"] = args.gamma
-    if args.mirror is not None:
-        config["transformations"]["mirror"] = args.mirror
-    if args.dummy_2D is not None:
-        config["transformations"]["dummy_2D"] = args.dummy_2D
+        if args.patch_size is not None:
+            config["transformations"]["patch_size"] = args.patch_size
+        if args.resize_shape is not None:
+            config["transformations"]["resize_shape"] = args.resize_shape
+        for key in [
+            "elastic", "scaling", "rotation", "gaussian_noise",
+            "gaussian_blur", "brightness", "contrast", "gamma",
+            "mirror", "dummy_2D"]:
+            if getattr(args, key, None) is not None:
+                config["transformations"][key] = getattr(args, key)
 
-    if args.batch_size is not None:
-        config["batch_size"] = args.batch_size
-    if args.n_epochs is not None:
-        config["n_epochs"] = args.n_epochs
-    if args.val_interval is not None:
-        config["val_interval"] = args.val_interval
+        if args.batch_size is not None:
+            config["batch_size"] = args.batch_size
+        if args.n_epochs is not None:
+            config["n_epochs"] = args.n_epochs
+        if args.val_interval is not None:
+            config["val_interval"] = args.val_interval
 
-    if args.lr_scheduler is not None:
-        config["lr_scheduler"] = args.lr_scheduler
-    if args.start_factor is not None:
-        config["lr_scheduler_params"]["start_factor"] = args.start_factor
-    if args.end_factor is not None:
-        config["lr_scheduler_params"]["end_factor"] = args.end_factor
-    if args.total_iters is not None:
-        config["lr_scheduler_params"]["total_iters"] = args.total_iters
+        if args.lr_scheduler is not None:
+            config["lr_scheduler"] = args.lr_scheduler
+        for key in ["start_factor", "end_factor", "total_iters"]:
+            if getattr(args, key, None) is not None:
+                config["lr_scheduler_params"][key] = getattr(args, key)
 
-    if args.load_model_path is not None:
-        config["load_model_path"] = args.load_model_path
+        if args.load_model_path is not None:
+            config["load_model_path"] = args.load_model_path
 
+    # ddpm params
     if args_mode in ['train_ddpm', 'train_ldm']:
-        if args.n_train_timesteps is not None:
-            config["n_train_timesteps"] = args.n_train_timesteps
-        if args.n_infer_timesteps is not None:
-            config["n_infer_timesteps"] = args.n_infer_timesteps
-        if args.time_scheduler is not None:
-            config["time_scheduler"] = args.time_scheduler
-        if args.learning_rate is not None:
-            config["learning_rate"] = args.learning_rate
-        if args.spatial_dims is not None:
-            config["model_params"]["spatial_dims"] = args.spatial_dims
-        if args.in_channels is not None:
-            config["model_params"]["in_channels"] = args.in_channels
-        if args.out_channels is not None:
-            config["model_params"]["out_channels"] = args.out_channels
-        if args.num_channels is not None:
-            config["model_params"]["num_channels"] = args.num_channels
-        if args.attention_levels is not None:
-            config["model_params"]["attention_levels"] = args.attention_levels
-        if args.num_head_channels is not None:
-            config["model_params"]["num_head_channels"] = args.num_head_channels
-        if args.num_res_blocks is not None:
-            config["model_params"]["num_res_blocks"] = args.num_res_blocks
-        if args.norm_num_groups is not None:
-            config["model_params"]["norm_num_groups"] = args.norm_num_groups
-        if args.use_flash_attention is not None:
-            config["model_params"]["use_flash_attention"] = args.use_flash_attention
+        if args.ddpm_learning_rate is not None:
+            config["ddpm_learning_rate"] = args.ddpm_learning_rate
 
-    if args_mode == 'train_vqgan':
-        if args.g_learning_rate is not None:
-            config["g_learning_rate"] = args.g_learning_rate
-        if args.d_learning_rate is not None:
-            config["d_learning_rate"] = args.d_learning_rate
-        if args.vqvae_warm_up_epochs is not None:
-            config["vqvae_warm_up_epochs"] = args.vqvae_warm_up_epochs
-        if args.adv_weight is not None:
-            config["adv_weight"] = args.adv_weight
-        if args.perc_weight is not None:
-            config["perc_weight"] = args.perc_weight
-        if args.q_weight is not None:
-            config["q_weight"] = args.q_weight
-        # Update perceptual parameters
-        if args.perceptual_spatial_dims is not None:
-            config["perceptual_params"]["spatial_dims"] = args.spatial_dims
-        if args.network_type is not None:
-            config["perceptual_params"]["network_type"] = args.network_type
-        if args.is_fake_3d is not None:
-            config["perceptual_params"]["is_fake_3d"] = args.is_fake_3d
-        if args.fake_3d_ratio is not None:
-            config["perceptual_params"]["fake_3d_ratio"] = args.fake_3d_ratio
-        # Update discriminator parameters
-        if args.discriminator_spatial_dims is not None:
-            config["discriminator_params"]["spatial_dims"] = args.discriminator_spatial_dims
-        if args.discriminator_in_channels is not None:
-            config["discriminator_params"]["in_channels"] = args.discriminator_in_channels
-        if args.discriminator_out_channels is not None:
-            config["discriminator_params"]["out_channels"] = args.discriminator_out_channels
-        if args.discriminator_num_channels is not None:
-            config["discriminator_params"]["num_channels"] = args.discriminator_num_channels
-        if args.discriminator_num_layers_d is not None:
-            config["discriminator_params"]["num_layers_d"] = args.discriminator_num_layers_d
+        for key in ["num_train_timesteps", "schedule", "beta_start", "beta_end", "prediction_type"]:
+            if getattr(args, f"time_scheduler_{key}", None) is not None:
+                config["time_scheduler_params"][key] = getattr(args, key)
+        for key in [
+            "spatial_dims", "in_channels", "out_channels", "num_channels",
+            "attention_levels", "num_head_channels", "num_res_blocks",
+            "norm_num_groups", "use_flash_attention"
+        ]:
+            if getattr(args, f"ddpm_{key}", None) is not None:
+                config["ddpm_params"][key] = getattr(args, f"ddpm_{key}")
 
-    # Update VQVAE parameters
-    if args_mode in ['train_vqgan', 'train_ldm']:
-        if args.vqvae_spatial_dims is not None:
-            config["vqvae_params"]["spatial_dims"] = args.vqvae_spatial_dims
-        if args.vqvae_in_channels is not None:
-            config["vqvae_params"]["in_channels"] = args.vqvae_in_channels
-        if args.vqvae_out_channels is not None:
-            config["vqvae_params"]["out_channels"] = args.vqvae_out_channels
-        if args.vqvae_num_channels is not None:
-            config["vqvae_params"]["num_channels"] = args.vqvae_num_channels
-        if args.vqvae_num_res_channels is not None:
-            config["vqvae_params"]["num_res_channels"] = args.vqvae_num_res_channels
-        if args.vqvae_num_res_layers is not None:
-            config["vqvae_params"]["num_res_layers"] = args.vqvae_num_res_layers
-        if args.vqvae_downsample_parameters is not None:
-            config["vqvae_params"]["downsample_parameters"] = args.vqvae_downsample_parameters
-        if args.vqvae_upsample_parameters is not None:
-            config["vqvae_params"]["upsample_parameters"] = args.vqvae_upsample_parameters
-        if args.vqvae_num_embeddings is not None:
-            config["vqvae_params"]["num_embeddings"] = args.vqvae_num_embeddings
-        if args.vqvae_embedding_dim is not None:
-            config["vqvae_params"]["embedding_dim"] = args.vqvae_embedding_dim
-        if args.vqvae_use_checkpointing is not None:
-            config["vqvae_params"]["use_checkpointing"] = args.vqvae_use_checkpointing
+    # autoencoder-specific params
+    if args_mode in ['train_autoencoder']:
+        for key in ["g_learning_rate", "d_learning_rate", "autoencoder_warm_up_epochs", "adv_weight", "perc_weight"]:
+            if getattr(args, key, None) is not None:
+                config[key] = getattr(args, key)
+        for key in ["spatial_dims", "network_type", "is_fake_3d", "fake_3d_ratio"]:
+            if getattr(args, f"perceptual_{key}", None) is not None:
+                config["perceptual_params"][key] = getattr(args, f"perceptual_{key}")
+        for key in ["spatial_dims", "in_channels", "out_channels", "num_channels", "num_layers_d"]:
+            if getattr(args, f"discriminator_{key}", None) is not None:
+                config["discriminator_params"][key] = getattr(args, f"discriminator_{key}")
+
+    if args_mode in ['train_autoencoder', 'train_ldm']:
+        if args.latent_space_type is not None:
+            config["latent_space_type"] = args.latent_space_type
+        # VQVAE params
+        for key in [
+            "spatial_dims", "in_channels", "out_channels", "num_channels",
+            "num_res_channels", "num_res_layers", "downsample_parameters",
+            "upsample_parameters", "num_embeddings", "embedding_dim", "use_checkpointing"
+        ]:
+            if getattr(args, f"vqvae_{key}", None) is not None:
+                config["vqvae_params"][key] = getattr(args, f"vqvae_{key}")
+
+        # VAE params
+        for key in [
+            "spatial_dims", "in_channels", "out_channels", "num_channels",
+            "latent_channels", "num_res_blocks", "norm_num_groups", "attention_levels",
+            "with_encoder_nonlocal_attn", "with_decoder_nonlocal_attn", "use_flash_attention",
+            "use_checkpointing", "use_convtranspose"
+        ]:
+            if getattr(args, f"vae_{key}", None) is not None:
+                config["vae_params"][key] = getattr(args, f"vae_{key}")
+
+    # Additional arguments
+    for key in ["progress_bar", "output_mode", "save_model", "save_graph", "save_plots", "save_profile"]:
+        if getattr(args, key, None) is not None:
+            config[key] = getattr(args, key)
 
     if args_mode == 'train_ldm':
-        if args.load_vqvae_path is not None:
-            config["load_vqvae_path"] = args.load_vqvae_path
-
-    if args.progress_bar is not None:
-        config["progress_bar"] = args.progress_bar
-    if args.output_mode is not None:
-        config["output_mode"] = args.output_mode
-    if args.save_model is not None:
-        config["save_model"] = args.save_model
-    if args.save_graph is not None:
-        config["save_graph"] = args.save_graph
-    if args.save_plots is not None:
-        config["save_plots"] = args.save_plots
-    if args.save_profile is not None:
-        config["save_profile"] = args.save_profile
+        if args.load_autoencoder_path is not None:
+            config["load_autoencoder_path"] = args.load_autoencoder_path
 
     return config
 
 
-def validate_and_cast_config(config, args_mode):
+def filter_config_by_mode(config, args_mode):
     """
-    Validate and cast configuration values to their correct data types.
+    Filters the configuration object by removing unnecessary arguments based on args_mode.
 
-    Raises:
-        ValueError: If any configuration value does not meet the expected criteria.
+    Args:
+        config (dict): The configuration dictionary.
+        args_mode (str): The current mode of operation.
+
+    Returns:
+        dict: Filtered configuration dictionary.
     """
-    # Ensure the splitting ratios sum to 1
-    config["splitting"] = tuple(config["splitting"])
-    if sum(config["splitting"]) != 1.0:
-        raise ValueError("Splitting ratios must sum to 1.")
+    if args_mode == 'train_ddpm':
+        config.pop('latent_space_type', None)
+        config.pop("vae_params", None)
+        config.pop("kl_weight", None)
+        config.pop("vqvae_params", None)
+        config.pop("q_weight", None)
+        config.pop("load_autoencoder_path", None)
 
-    if config["channels"] is not None:
-        if not isinstance(config["channels"], list) or not all(
-                isinstance(ch, int) and ch >= 0 for ch in config["channels"]):
-            raise ValueError("channels must be a list of non-negative integers or None.")
+    if args_mode == "train_autoencoder":
+        # Remove DDPM-related parameters
+        for key in ["ddpm_params", "time_scheduler_params", "ddpm_learning_rate", "load_autoencoder_path"]:
+            config.pop(key, None)
 
-    # Cast flat parameters and validate
-    config["transformations"]["patch_size"] = tuple(config["transformations"]["patch_size"])
-    if len(config["transformations"]["patch_size"]) != 3 or not all(isinstance(x, int) for x in config["transformations"]["patch_size"]):
-        raise ValueError("patch_size must be a tuple of 3 integers.")
+    if args_mode in ["train_ddpm", "train_ldm"]:
+        # Remove autoencoder-specific parameters
+        for key in [
+            "g_learning_rate", "d_learning_rate", "q_weight", "kl_weight",
+            "adv_weight", "perc_weight", "autoencoder_warm_up_epochs",
+            "perceptual_params", "discriminator_params"
+        ]:
+            config.pop(key, None)
 
-    if config["transformations"]["resize_shape"]:
-        config["transformations"]["resize_shape"] = tuple(config["transformations"]["resize_shape"])
-        if len(config["transformations"]["resize_shape"]) != 3 or not all(isinstance(x, int) for x in config["transformations"]["resize_shape"]):
-            raise ValueError("resize_shape must be a tuple of 3 integers.")
-
-    for key in [
-        "elastic", "scaling", "rotation", "gaussian_noise",
-        "gaussian_blur", "brightness", "contrast", "gamma",
-        "mirror", "dummy_2D"
-    ]:
-        config["transformations"][key] = bool(config["transformations"][key])
-
-    config["batch_size"] = int(config["batch_size"])
-    if config["batch_size"] <= 0:
-        raise ValueError("batch_size must be a positive integer.")
-
-    config["n_epochs"] = int(config["n_epochs"])
-    if config["n_epochs"] <= 0:
-        raise ValueError("n_epochs must be a positive integer.")
-
-    config["val_interval"] = int(config["val_interval"])
-    if config["val_interval"] <= 0:
-        raise ValueError("val_interval must be a positive integer.")
-
-    lr_scheduler_params = config["lr_scheduler_params"]
-    # Validate and cast start_factor
-    lr_scheduler_params["start_factor"] = float(lr_scheduler_params["start_factor"])
-    if not (0.0 < lr_scheduler_params["start_factor"] <= 1.0):
-        raise ValueError("start_factor must be a float between 0 (exclusive) and 1 (inclusive).")
-
-    lr_scheduler_params["end_factor"] = float(lr_scheduler_params["end_factor"])
-    if not (0.0 <= lr_scheduler_params["end_factor"] <= 1.0):
-        raise ValueError("end_factor must be a float between 0 and 1 (inclusive).")
-
-    lr_scheduler_params["total_iters"] = int(lr_scheduler_params["total_iters"])
-    if lr_scheduler_params["total_iters"] <= 0:
-        raise ValueError("total_iters must be a positive integer.")
-
-    if args_mode in ['train_ddpm', 'train_ldm']:
-        config["n_train_timesteps"] = int(config["n_train_timesteps"])
-        if config["n_train_timesteps"] <= 0:
-            raise ValueError("n_train_timesteps must be a positive integer.")
-
-        config["n_infer_timesteps"] = int(config["n_infer_timesteps"])
-        if config["n_infer_timesteps"] <= 0:
-            raise ValueError("n_infer_timesteps must be a positive integer.")
-
-        config["time_scheduler"] = str(config["time_scheduler"])
-
-        config["learning_rate"] = float(config["learning_rate"])
-        if config["learning_rate"] <= 0:
-            raise ValueError("learning_rate must be a positive number.")
-
-        # Validate and cast nested model parameters
-        params = config["model_params"]
-        params["spatial_dims"] = int(params["spatial_dims"])
-        if params["spatial_dims"] not in [2, 3]:
-            raise ValueError("spatial_dims must be 2 or 3.")
-
-        params["in_channels"] = int(params["in_channels"])
-        if params["in_channels"] <= 0:
-            raise ValueError("in_channels must be a positive integer.")
-
-        params["out_channels"] = int(params["out_channels"])
-        if params["out_channels"] <= 0:
-            raise ValueError("out_channels must be a positive integer.")
-
-        params["num_channels"] = [int(x) for x in params["num_channels"]]
-        if not all(x > 0 for x in params["num_channels"]):
-            raise ValueError("All values in num_channels must be positive integers.")
-
-        params["attention_levels"] = [bool(x) for x in params["attention_levels"]]
-        if len(params["attention_levels"]) != len(params["num_channels"]):
-            raise ValueError("attention_levels must have the same length as num_channels.")
-
-        params["num_head_channels"] = [int(x) for x in params["num_head_channels"]]
-        if not all(x >= 0 for x in params["num_head_channels"]):
-            raise ValueError("All values in num_head_channels must be non-negative integers.")
-
-        params["num_res_blocks"] = int(params["num_res_blocks"])
-        if params["num_res_blocks"] <= 0:
-            raise ValueError("num_res_blocks must be a positive integer.")
-
-        params["norm_num_groups"] = int(params["norm_num_groups"])
-        if params["norm_num_groups"] <= 0:
-            raise ValueError("norm_num_groups must be a positive integer.")
-
-        params["use_flash_attention"] = bool(params["use_flash_attention"])
-
-    if args_mode == 'train_vqgan':
-        # Validate and cast global learning parameters
-        config["g_learning_rate"] = float(config["g_learning_rate"])
-        if config["g_learning_rate"] <= 0:
-            raise ValueError("g_learning_rate must be a positive number.")
-
-        config["d_learning_rate"] = float(config["d_learning_rate"])
-        if config["d_learning_rate"] <= 0:
-            raise ValueError("d_learning_rate must be a positive number.")
-
-        config["vqvae_warm_up_epochs"] = int(config["vqvae_warm_up_epochs"])
-        if config["vqvae_warm_up_epochs"] < 0:
-            raise ValueError("n_infer_timesteps must be 0 or a positive integer.")
-
-        config["adv_weight"] = float(config["adv_weight"])
-        if config["adv_weight"] < 0:
-            raise ValueError("adv_weight must be a non-negative number.")
-
-        config["perc_weight"] = float(config["perc_weight"])
-        if config["perc_weight"] < 0:
-            raise ValueError("perc_weight must be a non-negative number.")
-
-        config["q_weight"] = float(config["q_weight"])
-        if config["q_weight"] < 0:
-            raise ValueError("q_weight must be a non-negative number.")
-
-        # Validate and cast perceptual parameters
-        perceptual_params = config["perceptual_params"]
-        perceptual_params["spatial_dims"] = int(perceptual_params["spatial_dims"])
-        if perceptual_params["spatial_dims"] not in [2, 3]:
-            raise ValueError("spatial_dims in perceptual_params must be 2 or 3.")
-
-        valid_nets = ["alex", "vgg", "squeeze", "radimagenet_resnet50", "medicalnet_resnet10_23datasets",
-                      "medicalnet_resnet50_23datasets", "resnet50"]
-        perceptual_params["network_type"] = str(perceptual_params["network_type"])
-        if perceptual_params["network_type"] not in valid_nets:
-            raise ValueError(f"network_type must be one of {valid_nets}.")
-
-        perceptual_params["is_fake_3d"] = bool(perceptual_params["is_fake_3d"])
-
-        perceptual_params["fake_3d_ratio"] = float(perceptual_params["fake_3d_ratio"])
-        if not (0 <= perceptual_params["fake_3d_ratio"] <= 1):
-            raise ValueError("fake_3d_ratio must be a float between 0 and 1.")
-
-        # Validate and cast discriminator parameters
-        discriminator_params = config["discriminator_params"]
-        discriminator_params["spatial_dims"] = int(discriminator_params["spatial_dims"])
-        if discriminator_params["spatial_dims"] not in [2, 3]:
-            raise ValueError("spatial_dims in discriminator_params must be 2 or 3.")
-
-        discriminator_params["in_channels"] = int(discriminator_params["in_channels"])
-        if discriminator_params["in_channels"] <= 0:
-            raise ValueError("in_channels in discriminator_params must be a positive integer.")
-
-        discriminator_params["out_channels"] = int(discriminator_params["out_channels"])
-        if discriminator_params["out_channels"] <= 0:
-            raise ValueError("out_channels in discriminator_params must be a positive integer.")
-
-        discriminator_params["num_channels"] = int(discriminator_params["num_channels"])
-        if discriminator_params["num_channels"] <= 0:
-            raise ValueError("num_channels in discriminator_params must be a positive integer.")
-
-        discriminator_params["num_layers_d"] = int(discriminator_params["num_layers_d"])
-        if discriminator_params["num_channels"] <= 0:
-            raise ValueError("num_layers_d in discriminator_params must be a positive integer.")
-
-    if args_mode in ['train_vqgan', 'train_ldm']:
-        # Validate and cast model parameters
-        vqvae_params = config["vqvae_params"]
-        vqvae_params["spatial_dims"] = int(vqvae_params["spatial_dims"])
-        if vqvae_params["spatial_dims"] not in [2, 3]:
-            raise ValueError("spatial_dims in model_params must be 2 or 3.")
-
-        vqvae_params["in_channels"] = int(vqvae_params["in_channels"])
-        if vqvae_params["in_channels"] <= 0:
-            raise ValueError("in_channels in model_params must be a positive integer.")
-
-        vqvae_params["out_channels"] = int(vqvae_params["out_channels"])
-        if vqvae_params["out_channels"] <= 0:
-            raise ValueError("out_channels in model_params must be a positive integer.")
-
-        vqvae_params["num_channels"] = [int(x) for x in vqvae_params["num_channels"]]
-        if not all(x > 0 for x in vqvae_params["num_channels"]):
-            raise ValueError("All values in num_channels must be positive integers.")
-
-        vqvae_params["num_res_channels"] = [int(x) for x in vqvae_params["num_res_channels"]]
-        if not all(x > 0 for x in vqvae_params["num_res_channels"]):
-            raise ValueError("All values in num_res_channels must be positive integers.")
-
-        vqvae_params["num_res_layers"] = int(vqvae_params["num_res_layers"])
-        if vqvae_params["num_res_layers"] <= 0:
-            raise ValueError("num_res_layers must be a positive integer.")
-
-        vqvae_params["downsample_parameters"] = [x if isinstance(x, tuple) else tuple(x) for x in vqvae_params["downsample_parameters"]]
-        if not all(len(t) == 4 for t in vqvae_params["downsample_parameters"]):
-            raise ValueError("Each tuple in downsample_parameters must have exactly 4 elements.")
-
-        vqvae_params["upsample_parameters"] = [tuple(map(int, x)) for x in vqvae_params["upsample_parameters"]]
-        if not all(len(t) == 5 for t in vqvae_params["upsample_parameters"]):
-            raise ValueError("Each tuple in upsample_parameters must have exactly 5 elements.")
-
-        vqvae_params["num_embeddings"] = int(vqvae_params["num_embeddings"])
-        if vqvae_params["num_embeddings"] <= 0:
-            raise ValueError("num_embeddings must be a positive integer.")
-
-        vqvae_params["embedding_dim"] = int(vqvae_params["embedding_dim"])
-        if vqvae_params["embedding_dim"] <= 0:
-            raise ValueError("embedding_dim must be a positive integer.")
-
-        vqvae_params["use_checkpointing"] = bool(vqvae_params["use_checkpointing"])
-
-    config["progress_bar"] = bool(config["progress_bar"])
-    config["output_mode"] = str(config["output_mode"])
-    if config["output_mode"] not in ["log", "verbose"]:
-        raise ValueError("output_mode must be 'log' or 'verbose'.")
-    config["save_model"] = bool(config["save_model"])
-    config["save_graph"] = bool(config["save_graph"])
-    config["save_plots"] = bool(config["save_plots"])
-    config["save_profile"] = bool(config["save_profile"])
+    if args_mode in ["train_autoencoder", "train_ldm"]:
+        # Handle latent space-specific filtering
+        latent_space_type = config.get("latent_space_type", "vae").lower()
+        if latent_space_type == "vq":
+            # Remove VAE-specific parameters
+            config.pop("vae_params", None)
+            config.pop("kl_weight", None)
+        elif latent_space_type == "vae":
+            # Remove VQVAE-specific parameters
+            config.pop("vqvae_params", None)
+            config.pop("q_weight", None)
 
     return config
 

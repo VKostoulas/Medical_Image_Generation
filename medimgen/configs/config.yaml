@@ -1,39 +1,107 @@
-splitting: [0.8, 0.2]
-channels: [1]
+splitting: [0.8, 0.2]  # Train-val split ratios
+channels: [1]  # List of channel indices
+
 transformations:
-  patch_size: [160, 200, 155]
-  resize_shape: [32, 40, 32]
-  elastic: false
-  scaling: true
-  rotation: true
-  gaussian_noise: false
-  gaussian_blur: false
-  brightness: false
-  contrast: false
-  gamma: false
-  mirror: false
-  dummy_2D: false
+  patch_size: [160, 200, 155]  # Center crop size
+  resize_shape: [64, 64, 64]  # Resized size
+  elastic: false  # Enable elastic transformations
+  scaling: false  # Enable scaling transformations
+  rotation: false  # Enable rotation transformations
+  gaussian_noise: false  # Enable Gaussian noise
+  gaussian_blur: false  # Enable Gaussian blur
+  brightness: false  # Enable brightness adjustment
+  contrast: false  # Enable contrast adjustment
+  gamma: false  # Enable gamma adjustment
+  mirror: false  # Enable mirroring
+  dummy_2D: false  # Enable dummy 2D mode
 
-batch_size: 4
-n_train_timesteps: 1000
-n_infer_timesteps: 1000
-time_scheduler: "scaled_linear_beta"
-n_epochs: 500
-val_interval: 20
-learning_rate: 5e-5
+batch_size: 2  # Batch size
+n_epochs: 250  # Number of epochs
+val_interval: 20  # Validation interval
 
-model_params:
-  spatial_dims: 3
-  in_channels: 1
-  out_channels: 1
-  num_channels: [128, 128, 256]
-  attention_levels: [false, false, true]
-  num_head_channels: [0, 0, 256]
-  num_res_blocks: 2
+lr_scheduler: "LinearLR"
+lr_scheduler_params:
+  start_factor: 1.0  # Start factor for learning rate scheduler
+  end_factor: 0.1  # End factor for learning rate scheduler
+  total_iters: 200  # Total iterations for the learning rate scheduler
 
-progress_bar: True
-output_mode: "verbose"
-save_model: false
-save_graph: false
-save_plots: true
-save_profile: false
+load_model_path: ""
+
+n_train_timesteps: 1000  # Number of training timesteps
+n_infer_timesteps: 1000  # Number of inference timesteps
+time_scheduler: "scaled_linear_beta"  # Time scheduler type
+ddpm_learning_rate: 1e-4  # Learning rate
+
+ddpm_params:
+  spatial_dims: 3  # Spatial dimensions (2 or 3)
+  in_channels: 8  # Number of input channels
+  out_channels: 8  # Number of output channels
+  num_channels: [128, 128, 256]  # List of channel numbers for the model
+  attention_levels: [false, false, true]  # List of attention levels
+  num_head_channels: [0, 0, 256]  # Number of head channels for the model
+  num_res_blocks: 2  # Number of residual blocks
+  norm_num_groups: 32  # Number of groups for normalization
+  use_flash_attention: false  # Use flash attention for efficiency
+
+g_learning_rate: 0.0003  # Generator learning rate
+d_learning_rate: 0.0003  # Discriminator learning rate
+
+q_weight: 1 # Quantization loss weight (used for VQGAN)
+kl_weight: 0.001  # KL divergence loss weight (used for VAE)
+
+adv_weight: 0.25  # Adversarial loss weight
+perc_weight: 1  # Perceptual loss weight
+
+autoencoder_warm_up_epochs: 5 # Number of epochs to train the autoencoder before training the discriminator
+
+latent_space_type: "vae"
+
+load_autoencoder_path: ""
+
+vqvae_params:
+  spatial_dims: 3  # Spatial dimensions for VQVAE
+  in_channels: 1  # Number of input channels
+  out_channels: 1  # Number of output channels
+  num_channels: [64, 128]  # List of channel numbers
+  num_res_channels: [64, 64]  # Number of residual channels
+  num_res_layers: 2  # Number of residual layers
+  downsample_parameters: [[2, 2, 2, 4], [2, 2, 2, 4]]  # Downsampling params
+  upsample_parameters: [[2, 2, 2, 4, 2], [2, 2, 2, 4, 2]]  # Upsampling params
+  num_embeddings: 512  # Number of embeddings
+  embedding_dim: 64  # Embedding dimension
+  use_checkpointing: false  # Use activation checkpointing
+
+vae_params:
+  spatial_dims: 3  # Spatial dimensions for VAE
+  in_channels: 1  # Number of input channels for the VAE model
+  out_channels: 1  # Number of output channels for the VAE model
+  num_channels: [32, 64]  # List of channel numbers for the VAE model
+  latent_channels: 8  # Number of latent channels
+  num_res_blocks: 2  # Number of residual blocks
+  norm_num_groups: 32  # Number of groups for normalization
+  attention_levels: [false, false]  # List of attention levels (True/False)
+  with_encoder_nonlocal_attn: false
+  with_decoder_nonlocal_attn: false
+  use_flash_attention: false
+  use_checkpointing: false
+  use_convtranspose: false
+
+perceptual_params:
+  spatial_dims: 3  # Spatial dimensions for perceptual parameters
+  network_type: "squeeze"  # Type of perceptual network
+  is_fake_3d: true  # Enable fake 3D mode
+  fake_3d_ratio: 0.2  # Ratio for fake 3D
+
+discriminator_params:
+  spatial_dims: 3  # Spatial dimensions for discriminator
+  in_channels: 1  # Number of input channels
+  out_channels: 1  # Number of output channels
+  num_channels: 32  # Number of channels
+  num_layers_d: 3  # Number of layers in the discriminator
+
+progress_bar: true  # Enable progress bars
+output_mode: "verbose"  # Output mode (log or verbose)
+save_model: false  # Save model checkpoints
+save_graph: false  # Save computation graph
+save_plots: true  # Save training plots
+save_profile: false  # Save profiling information

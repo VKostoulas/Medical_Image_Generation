@@ -26,7 +26,7 @@ setup(
         "console_scripts": [
             "preprocess_dataset=medimgen.preprocess_dataset:main",
             "train_ddpm=medimgen.train_ddpm:main",
-            "train_vqgan=medimgen.train_vqgan:main",
+            "train_autoencoder=medimgen.train_autoencoder:main",
             "train_ldm=medimgen.train_ldm:main",
             "sample_ddpm=medimgen.sample_ddpm:main",
             "sample_ldm=medimgen.sample_ldm:main"
