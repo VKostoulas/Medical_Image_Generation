@@ -56,27 +56,36 @@ def save_main_losses(epoch_loss_list, val_epoch_loss_list, validation_interval, 
     print(f"Loss plot saved at {save_path}")
 
 
-def save_gan_losses(epoch_gen_loss_list, epoch_disc_loss_list, save_path):
+def save_all_losses(gen_loss, disc_loss, train_recon_loss, val_recon_loss, perceptual_loss, save_path, validation_interval):
     """
-    Saves a plot of generator and discriminator loss per epoch.
+    Saves a plot of generator, discriminator, training reconstruction, validation reconstruction,
+    and perceptual losses per epoch.
 
     Args:
-        epoch_gen_loss_list (list): List of generator loss values per epoch.
-        epoch_disc_loss_list (list): List of discriminator loss values per epoch.
+        gen_loss (list): Generator loss values per epoch.
+        disc_loss (list): Discriminator loss values per epoch.
+        train_recon_loss (list): Training reconstruction loss values per epoch.
+        val_recon_loss (list): Validation reconstruction loss values per epoch.
+        perceptual_loss (list): Perceptual loss values per epoch.
         save_path (str): Path to save the plot.
     """
-    epochs = range(len(epoch_gen_loss_list))  # Epoch indices
+    epochs = range(len(train_recon_loss))  # Epoch indices
+    val_epochs = list(range(0, len(train_recon_loss), validation_interval))
 
-    plt.figure(figsize=(8, 6))
-    plt.plot(epochs, epoch_gen_loss_list, label="Generator Loss", marker='o', linestyle='-')
-    plt.plot(epochs, epoch_disc_loss_list, label="Discriminator Loss", marker='o', linestyle='--')
+    plt.figure(figsize=(10, 8))
+    plt.plot(epochs, gen_loss, label="Generator Loss", marker='o', linestyle='-')
+    plt.plot(epochs, disc_loss, label="Discriminator Loss", marker='o', linestyle='-')
+    plt.plot(epochs, train_recon_loss, label="Train Reconstruction Loss", marker='o', linestyle='-')
+    plt.plot(val_epochs, val_recon_loss, label="Val Reconstruction Loss", marker='o', linestyle='-')
+    plt.plot(epochs, perceptual_loss, label="Perceptual Loss", marker='o', linestyle='-')
+
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
-    plt.title("Generator and Discriminator Loss per Epoch")
+    plt.title("Losses per Epoch")
     plt.legend()
     plt.grid(True)
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()  # Close the figure to free memory
-    print(f"GAN loss plot saved at {save_path}")
+    print(f"Loss plot saved at {save_path}")

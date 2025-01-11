@@ -70,12 +70,12 @@ class LDM:
                     if self.config['latent_space_type'] == 'vq':
                         with torch.no_grad():
                             latents = self.autoencoder.encode(images)
-                        latents_scaled = self.codebook_min_max_normalize(latents)
+                            latents_scaled = self.codebook_min_max_normalize(latents)
 
                     elif self.config['latent_space_type'] == 'vae':
                         with torch.no_grad():
                             latents = self.autoencoder.encode_stage_2_inputs(images)
-                        latents_scaled = latents * self.inferer.scale_factor
+                            latents_scaled = latents * self.inferer.scale_factor
 
                     noise = torch.randn_like(latents_scaled).to(self.device)
                     noisy_latents = self.scheduler.add_noise(original_samples=latents_scaled, noise=noise, timesteps=timesteps)
@@ -124,12 +124,12 @@ class LDM:
                         if self.config['latent_space_type'] == 'vq':
                             with torch.no_grad():
                                 latents = self.autoencoder.encode(images)
-                            latents_scaled = self.codebook_min_max_normalize(latents)
+                                latents_scaled = self.codebook_min_max_normalize(latents)
 
                         elif self.config['latent_space_type'] == 'vae':
                             with torch.no_grad():
                                 latents = self.autoencoder.encode_stage_2_inputs(images)
-                            latents_scaled = latents * self.inferer.scale_factor
+                                latents_scaled = latents * self.inferer.scale_factor
 
                         noise = torch.randn_like(latents_scaled).to(self.device)
                         noisy_latents = self.scheduler.add_noise(original_samples=latents_scaled, noise=noise,

@@ -1,13 +1,13 @@
 # 2D and 3D Medical Image Generation with Diffusion models and GANs
 
-## Description
+### Description
 Training and sampling with 2D or 3D image generation models on your dataset
 has never been that easy! Simply, create your dataset, and that's it!
 Go train your model! Assuming that you have enough GPU memory (these 3D models
 can take a colossal amount of memory) and you know exactly your architecture... Or
 enjoy hyperparameter tuning!
 
-## Installation
+### Installation
 
 - python 3.9.17, cuda 11.8, and at least one faaat GPU
 - pip install medimgen
@@ -74,7 +74,7 @@ preprocess_dataset --task your_task
 
 This will create a new folder called your_task_preprocessed in your data path with 
 all the images cropped to non-zero regions, and resampled to the median voxel 
-spacing of the dataset. 
+spacing of the dataset (based on nn-UNet preprocessing). 
 
 If you also want to perform histogram equalization run:
 
@@ -84,10 +84,10 @@ preprocess_dataset --task your_task -intensity
 
 ### Configuration
 All the global settings of the projects are stored in a configuration file. The 
-*config.yaml* file in the configs folder is a basic configuration. DO NOT use this 
-as your configuration file as it will not work. It is only there just to show you
-all the possible parameters that you can modify. You should create your own file and 
-call it when running the main.py (see next section), but keep all the config files 
+*config.yaml* file in the configs folder is a basic configuration. You could use this 
+as your configuration file, but it is highly recommended to create your own config
+files based on different experiments. You can create your own files and 
+call them when running the main.py (see next section), but keep all the config files 
 in the /medimgen/configs folder. It is handy to store different configuration files 
 for different experiments (e.g., one file for diffusion model and one for latent 
 diffusion model).
@@ -105,21 +105,21 @@ We are using a custom configuration file, and we are saving every output in a
 log file instead of printing on screen (--output_mode is not required).
 
 #### Latent Diffusion Model
-To train a Latent Diffusion Model, first we need to train a VQ-GAN:
+To train a Latent Diffusion Model, first we need to train an autoencoder:
 
 ```bash
-train_vqgan --task Task01_BrainTumour --config vqgan_config --output_mode log
+train_autoencoder --task Task01_BrainTumour --config ldm_config --output_mode log
 ```
 After finishing training, we can then train the Latent Diffusion Model, optionally
 by adding the path to the VQ-GAN checkpoint in config file, or by providing it:
 
 ```bash
 train_ldm --task Task01_BrainTumour --config ldm_config --output_mode log \
---load_vqvae_path /path_to_vqgan_checkpoint
+--load_autoencoder_path /path_to_autoencoder_checkpoint.pth
 ```
 
 #### Output Files
-Running an experiment will create a directory in your save_path. Depending 
+Running an experiment will create a directory in your SAVEPATH. Depending 
 on your configuration the following folders or files will be created: 
 - checkpoints folder: the checkpoints of the last and the best epoch of the training 
 will be saved here. For ddpm and ldm models only 2 checkpoints will be saved (the 
@@ -134,6 +134,17 @@ perform a validation step. For ddpm and ldm, the gifs contain slices of a genera
 3D example across the z direction, while for vqgan, an actual image and its
 reconstruction are visualized.
 
+#### Tips for Training
+
+- The autoencoder shouldn't have more than 2-3 downsampling layers, otherwise it 
+won't be able to reconstruct details accurately.
+- Only a few convolutional filters for every layer of the autoencoder (e.g., 32), 
+can result in good enough reconstruction performance. 
+- Loss weights in the training of the autoencoder are really important. Some works
+might use relatively small loss weights for the perceptual loss (e.g., 0.01) and the
+adversarial loss (e.g., 0.1), but based on experiments a value of 1, and 0.25, 
+respectively, gives much better and realistic results.
+
 ### Sampling
 
 To sample with your favorite DDPM run:
@@ -141,3 +152,15 @@ To sample with your favorite DDPM run:
 ```bash
 sample_images --model_path /path_to_ddpm_checkpoint --config ddpm_config --n_images 10 --save_path /path_to_save_folder
 ```
+
+## ToDos
+
+- Add intensity normalization
+- Add 2D functionality (only 3D now)
+- Add option to include labels, so that we can train a model to generate labels 
+together with images
+- Add efficient implementation of U-Net like in Medical Diffusion
+- Add GANs
+- Ultimate Goal: like nnU-Net, study and come up with heuristics that can be applied
+to multiple datasets and achieve high quality generation. Come up with ways to 
+automatically configure every experiment's hyperparameters.
