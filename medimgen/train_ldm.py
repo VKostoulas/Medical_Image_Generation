@@ -92,7 +92,7 @@ class LDM:
 
                 scaler.scale(loss).backward()
 
-                if (step + 1) % self.config['grad_accumulate_step'] == 0:
+                if (step + 1) % self.config['grad_accumulate_step'] == 0 or (step +1) == len(train_loader):
                     # gradient clipping
                     if self.config['grad_clip_max_norm']:
                         scaler.unscale_(optimizer)

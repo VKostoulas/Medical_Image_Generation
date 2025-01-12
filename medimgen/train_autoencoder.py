@@ -79,7 +79,7 @@ class AutoEncoder:
 
                 scaler_g.scale(loss_g).backward()
 
-                if (step + 1) % self.config['grad_accumulate_step'] == 0:
+                if (step + 1) % self.config['grad_accumulate_step'] == 0 or (step +1) == len(train_loader):
                     # gradient clipping
                     if self.config['grad_clip_max_norm']:
                         scaler_g.unscale_(optimizer_g)
@@ -100,7 +100,7 @@ class AutoEncoder:
 
                     scaler_d.scale(loss_d).backward()
 
-                    if (step + 1) % self.config['grad_accumulate_step'] == 0:
+                    if (step + 1) % self.config['grad_accumulate_step'] == 0 or (step +1) == len(train_loader):
                         # gradient clipping
                         if self.config['grad_clip_max_norm']:
                             scaler_d.unscale_(optimizer_d)
