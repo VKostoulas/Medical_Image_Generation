@@ -18,6 +18,8 @@ transformations:
 batch_size: 2  # Batch size
 n_epochs: 250  # Number of epochs
 val_interval: 20  # Validation interval
+grad_accumulate_step: 1
+grad_clip_max_norm: 1.0
 
 lr_scheduler: "LinearLR"
 lr_scheduler_params:
@@ -27,10 +29,14 @@ lr_scheduler_params:
 
 load_model_path: ""
 
-n_train_timesteps: 1000  # Number of training timesteps
-n_infer_timesteps: 1000  # Number of inference timesteps
-time_scheduler: "scaled_linear_beta"  # Time scheduler type
-ddpm_learning_rate: 1e-4  # Learning rate
+time_scheduler_params:
+  num_train_timesteps: 1000  # Number of training timesteps
+  schedule: "scaled_linear_beta"  # Time scheduler type
+  beta_start: 0.0015
+  beta_end: 0.0195
+  prediction_type: "epsilon" # "v_prediction"
+
+ddpm_learning_rate: 0.0001  # Learning rate
 
 ddpm_params:
   spatial_dims: 3  # Spatial dimensions (2 or 3)
@@ -47,7 +53,7 @@ g_learning_rate: 0.0003  # Generator learning rate
 d_learning_rate: 0.0003  # Discriminator learning rate
 
 q_weight: 1 # Quantization loss weight (used for VQGAN)
-kl_weight: 0.001  # KL divergence loss weight (used for VAE)
+kl_weight: 0.000001  # KL divergence loss weight (used for VAE)
 
 adv_weight: 0.25  # Adversarial loss weight
 perc_weight: 1  # Perceptual loss weight
@@ -65,10 +71,10 @@ vqvae_params:
   num_channels: [64, 128]  # List of channel numbers
   num_res_channels: [64, 64]  # Number of residual channels
   num_res_layers: 2  # Number of residual layers
-  downsample_parameters: [[2, 2, 2, 4], [2, 2, 2, 4]]  # Downsampling params
-  upsample_parameters: [[2, 2, 2, 4, 2], [2, 2, 2, 4, 2]]  # Upsampling params
-  num_embeddings: 512  # Number of embeddings
-  embedding_dim: 64  # Embedding dimension
+  downsample_parameters: [[2, 4, 1, 1], [2, 4, 1, 1]]  # Downsampling params
+  upsample_parameters: [[2, 4, 1, 1, 0], [2, 4, 1, 1, 0]]  # Upsampling params
+  num_embeddings: 2048  # Number of embeddings
+  embedding_dim: 8  # Embedding dimension
   use_checkpointing: false  # Use activation checkpointing
 
 vae_params:
