@@ -60,11 +60,12 @@ class LDM:
 
         with tqdm(enumerate(train_loader), total=len(train_loader), ncols=100, disable=disable_prog_bar, file=sys.stdout) as progress_bar:
             progress_bar.set_description(f"Epoch {epoch}")
+
+            optimizer.zero_grad(set_to_none=True)
             for step, batch in progress_bar:
                 images = batch["image"].to(self.device)
                 timesteps = torch.randint(0, self.scheduler.num_train_timesteps, (images.shape[0],),
                                           device=images.device).long()
-                optimizer.zero_grad(set_to_none=True)
 
                 with autocast(enabled=True):
                     if self.config['latent_space_type'] == 'vq':
@@ -90,10 +91,15 @@ class LDM:
                     loss = F.mse_loss(noise_pred.float(), target.float())
 
                 scaler.scale(loss).backward()
-                # scaler.unscale_(optimizer)
-                # torch.nn.utils.clip_grad_norm_(self.ddpm.parameters(), max_norm=1.0)
-                scaler.step(optimizer)
-                scaler.update()
+
+                if (step + 1) % self.config['grad_accumulate_step'] == 0:
+                    # gradient clipping
+                    if self.config['grad_clip_max_norm']:
+                        scaler.unscale_(optimizer)
+                        torch.nn.utils.clip_grad_norm_(self.ddpm.parameters(), max_norm=self.config['grad_clip_max_norm'])
+                    scaler.step(optimizer)
+                    scaler.update()
+                    optimizer.zero_grad(set_to_none=True)
 
                 epoch_loss += loss.item()
                 progress_bar.set_postfix({"loss": epoch_loss / (step + 1)})

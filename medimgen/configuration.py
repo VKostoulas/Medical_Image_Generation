@@ -32,6 +32,8 @@ def add_training_args(parser):
     parser.add_argument("--batch_size", type=int, help="Batch size")
     parser.add_argument("--n_epochs", type=int, help="Number of epochs")
     parser.add_argument("--val_interval", type=int, help="Validation interval")
+    parser.add_argument("--grad_accumulate_step", type=int, help="Number of steps to accumulate gradients")
+    parser.add_argument("--grad_clip_max_norm", type=float, help="Max norm for gradient clipping")
     # Parsing arguments for lr_scheduler
     parser.add_argument("--lr_scheduler", type=str, help="Type of learning rate scheduler")
     parser.add_argument("--start_factor", type=float, help="Start factor for learning rate scheduler")
@@ -227,6 +229,10 @@ def update_config_with_args(config, args, args_mode):
             config["n_epochs"] = args.n_epochs
         if args.val_interval is not None:
             config["val_interval"] = args.val_interval
+        if args.grad_accumulate_step is not None:
+            config["grad_accumulate_step"] = args.grad_accumulate_step
+        if args.grad_clip_max_norm is not None:
+            config["grad_clip_max_norm"] = args.grad_clip_max_norm
 
         if args.lr_scheduler is not None:
             config["lr_scheduler"] = args.lr_scheduler

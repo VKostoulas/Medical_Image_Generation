@@ -52,11 +52,12 @@ class AutoEncoder:
         with tqdm(enumerate(train_loader), total=len(train_loader), ncols=150, disable=disable_prog_bar, file=sys.stdout) as progress_bar:
             progress_bar.set_description(f"Epoch {epoch}")
 
+            optimizer_g.zero_grad(set_to_none=True)
+            optimizer_d.zero_grad(set_to_none=True)
             for step, batch in progress_bar:
                 images = batch["image"].to(self.device)
 
                 # Generator part
-                optimizer_g.zero_grad(set_to_none=True)
                 with autocast(enabled=True):
                     if self.config['latent_space_type'] == 'vq':
                         reconstructions, quantization_loss = self.autoencoder(images)
@@ -77,14 +78,18 @@ class AutoEncoder:
                         # print(quantization_loss * self.config['q_weight'], recons_loss, p_loss * self.config['perc_weight'], generator_loss * self.config['adv_weight'])
 
                 scaler_g.scale(loss_g).backward()
-                # scaler_g.unscale_(optimizer_g)
-                # torch.nn.utils.clip_grad_norm_(self.network.parameters(), max_norm=1.0)
-                scaler_g.step(optimizer_g)
-                scaler_g.update()
+
+                if (step + 1) % self.config['grad_accumulate_step'] == 0:
+                    # gradient clipping
+                    if self.config['grad_clip_max_norm']:
+                        scaler_g.unscale_(optimizer_g)
+                        torch.nn.utils.clip_grad_norm_(self.autoencoder.parameters(), max_norm=self.config['grad_clip_max_norm'])
+                    scaler_g.step(optimizer_g)
+                    scaler_g.update()
+                    optimizer_g.zero_grad(set_to_none=True)
 
                 # Discriminator part
                 if epoch >= self.config['autoencoder_warm_up_epochs']:
-                    optimizer_d.zero_grad(set_to_none=True)
                     with autocast(enabled=True):
                         logits_fake = discriminator(reconstructions.contiguous().detach())[-1]
                         loss_d_fake = self.adv_loss(logits_fake, target_is_real=False, for_discriminator=True)
@@ -94,10 +99,15 @@ class AutoEncoder:
                         loss_d = discriminator_loss * self.config['adv_weight']
 
                     scaler_d.scale(loss_d).backward()
-                    # scaler_d.unscale_(optimizer_d)
-                    # torch.nn.utils.clip_grad_norm_(discriminator.parameters(), max_norm=1.0)
-                    scaler_d.step(optimizer_d)
-                    scaler_d.update()
+
+                    if (step + 1) % self.config['grad_accumulate_step'] == 0:
+                        # gradient clipping
+                        if self.config['grad_clip_max_norm']:
+                            scaler_d.unscale_(optimizer_d)
+                            torch.nn.utils.clip_grad_norm_(discriminator.parameters(), max_norm=self.config['grad_clip_max_norm'])
+                        scaler_d.step(optimizer_d)
+                        scaler_d.update()
+                        optimizer_d.zero_grad(set_to_none=True)
 
                 epoch_recon_loss += recons_loss.item()
                 epoch_perc_loss += p_loss.item()
