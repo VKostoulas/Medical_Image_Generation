@@ -5,6 +5,7 @@ import os
 import sys
 import torch
 import time
+import pickle
 import matplotlib.pyplot as plt
 
 from io import BytesIO
@@ -20,7 +21,7 @@ from generative.losses import PatchAdversarialLoss, PerceptualLoss
 from medimgen.data_processing import get_data_loaders
 from medimgen.configuration import (load_config, parse_arguments, update_config_with_args, filter_config_by_mode,
                                     print_configuration, create_save_path_dict)
-from medimgen.utils import create_gif_from_images, save_main_losses, save_all_losses
+from medimgen.utils import create_gif_from_images, save_all_losses
 
 
 class AutoEncoder:
@@ -33,6 +34,16 @@ class AutoEncoder:
         self.l1_loss = L1Loss()
         self.adv_loss = PatchAdversarialLoss(criterion="least_squares")
 
+        if self.config['load_model_path']:
+            # update loss_dict from previous training, as we are continuing training
+            loss_pickle_path = os.path.join("/".join(self.config['load_model_path'].split('/')[:-2]), 'loss_dict.pkl')
+            if os.path.exists(loss_pickle_path):
+                with open(loss_pickle_path, 'rb') as file:
+                    self.loss_dict = pickle.load(file)
+        else:
+            self.loss_dict = {'rec_loss': [], 'reg_loss': [], 'gen_loss': [], 'disc_loss': [], 'perc_loss': [],
+                              'val_rec_loss': []}
+
     @staticmethod
     def get_kl_loss(z_mu, z_sigma):
         kl_loss = 0.5 * torch.sum(z_mu.pow(2) + z_sigma.pow(2) - torch.log(z_sigma.pow(2)) - 1, dim=[1, 2, 3, 4])
@@ -42,11 +53,7 @@ class AutoEncoder:
                         scaler_d):
         self.autoencoder.train()
         discriminator.train()
-        epoch_recon_loss = 0
-        epoch_gen_loss = 0
-        epoch_disc_loss = 0
-        epoch_perc_loss = 0
-        epoch_reg_loss = 0
+        epoch_loss_dict = {'rec_loss': 0, 'reg_loss': 0, 'gen_loss': 0, 'disc_loss': 0, 'perc_loss': 0}
         disable_prog_bar = self.config['output_mode'] == 'log' or not self.config['progress_bar']
         start = time.time()
 
@@ -57,91 +64,95 @@ class AutoEncoder:
             optimizer_d.zero_grad(set_to_none=True)
             for step, batch in progress_bar:
                 images = batch["image"].to(self.device)
+                step_loss_dict = {}
 
-                for param in discriminator.parameters():
-                    param.requires_grad = False
-                for param in self.autoencoder.parameters():
-                    param.requires_grad = True
-
-                # Generator part
-                with autocast(enabled=True):
-                    if self.config['latent_space_type'] == 'vq':
-                        reconstructions, quantization_loss = self.autoencoder(images)
-                        regularization_loss = quantization_loss * self.config['q_weight']
-                    elif self.config['latent_space_type'] == 'vae':
-                        reconstructions, z_mu, z_sigma = self.autoencoder(images)
-                        regularization_loss = self.get_kl_loss(z_mu, z_sigma) * self.config['kl_weight']
-
-                    recons_loss = self.l1_loss(reconstructions.float(), images.float())
-                    p_loss = perceptual_loss(reconstructions.float(), images.float()) * self.config['perc_weight']
-                    loss_g = recons_loss + p_loss + regularization_loss
-
-                    if epoch >= self.config['autoencoder_warm_up_epochs']:
-                        logits_fake = discriminator(reconstructions.contiguous().float())[-1]
-                        generator_loss = self.adv_loss(logits_fake, target_is_real=True, for_discriminator=False) * self.config['adv_weight']
-                        loss_g += generator_loss
-                        # print(self.get_kl_loss(z_mu, z_sigma) * self.config['kl_weight'], recons_loss, p_loss * self.config['perc_weight'], generator_loss * self.config['adv_weight'])
-                        # print(quantization_loss * self.config['q_weight'], recons_loss, p_loss * self.config['perc_weight'], generator_loss * self.config['adv_weight'])
-
-                scaler_g.scale(loss_g).backward()
-
-                if (step + 1) % self.config['grad_accumulate_step'] == 0 or (step +1) == len(train_loader):
-                    # gradient clipping
-                    if self.config['grad_clip_max_norm']:
-                        scaler_g.unscale_(optimizer_g)
-                        torch.nn.utils.clip_grad_norm_(self.autoencoder.parameters(), max_norm=self.config['grad_clip_max_norm'])
-                    scaler_g.step(optimizer_g)
-                    scaler_g.update()
-                    optimizer_g.zero_grad(set_to_none=True)
-
+                reconstructions = self.train_generator_step(discriminator, epoch, images, optimizer_g, perceptual_loss,
+                                                            scaler_g, step, step_loss_dict, train_loader)
                 # Discriminator part
-                if epoch >= self.config['autoencoder_warm_up_epochs']:
-                    for param in discriminator.parameters():
-                        param.requires_grad = True
-                    for param in self.autoencoder.parameters():
-                        param.requires_grad = False
+                self.train_discriminator_step(discriminator, epoch, images, optimizer_d, reconstructions, scaler_d,
+                                              step, step_loss_dict, train_loader)
+                for key in step_loss_dict:
+                    epoch_loss_dict[key] += step_loss_dict[key].item()
 
-                    with autocast(enabled=True):
-                        logits_fake = discriminator(reconstructions.contiguous().detach())[-1]
-                        loss_d_fake = self.adv_loss(logits_fake, target_is_real=False, for_discriminator=True)
-                        logits_real = discriminator(images.contiguous().detach())[-1]
-                        loss_d_real = self.adv_loss(logits_real, target_is_real=True, for_discriminator=True)
-                        discriminator_loss = (loss_d_fake + loss_d_real) * 0.5
-                        loss_d = discriminator_loss * self.config['adv_weight']
+                progress_bar.set_postfix({key: value / (step + 1) for key, value in epoch_loss_dict.items()})
 
-                    scaler_d.scale(loss_d).backward()
-
-                    if (step + 1) % self.config['grad_accumulate_step'] == 0 or (step +1) == len(train_loader):
-                        # gradient clipping
-                        if self.config['grad_clip_max_norm']:
-                            scaler_d.unscale_(optimizer_d)
-                            torch.nn.utils.clip_grad_norm_(discriminator.parameters(), max_norm=self.config['grad_clip_max_norm'])
-                        scaler_d.step(optimizer_d)
-                        scaler_d.update()
-                        optimizer_d.zero_grad(set_to_none=True)
-
-                epoch_recon_loss += recons_loss.item()
-                epoch_perc_loss += p_loss.item()
-                epoch_reg_loss += regularization_loss.item()
-                if epoch >= self.config['autoencoder_warm_up_epochs']:
-                    epoch_gen_loss += generator_loss.item()
-                    epoch_disc_loss += loss_d.item()
-
-                progress_bar.set_postfix({
-                    "recons_loss": epoch_recon_loss / (step + 1),
-                    "reg_loss": epoch_reg_loss / (step + 1),
-                    "gen_loss": epoch_gen_loss / (step + 1),
-                    "disc_loss": epoch_disc_loss / (step + 1),
-                    "perc_loss": epoch_perc_loss / (step + 1)
-                })
+        epoch_loss_dict = {key: value / len(train_loader) for key, value in epoch_loss_dict.items()}
 
         if disable_prog_bar:
             end = time.time() - start
-            print(f"Epoch {epoch} - Time: {time.strftime('%H:%M:%S', time.gmtime(end))} - "
-            f"Train Loss: {epoch_recon_loss / len(train_loader):.4f}")
+            print_string = f"Epoch {epoch} - Time: {time.strftime('%H:%M:%S', time.gmtime(end))}"
+            for key in epoch_loss_dict:
+                print_string +=  f" - {key}: {epoch_loss_dict[key]:.4f}"
 
-        return (epoch_recon_loss / len(train_loader), epoch_reg_loss/ len(train_loader), epoch_gen_loss / len(train_loader),
-                epoch_disc_loss / len(train_loader), epoch_perc_loss / len(train_loader))
+        for key in epoch_loss_dict:
+            self.loss_dict[key].append(epoch_loss_dict[key])
+
+    def train_discriminator_step(self, discriminator, epoch, images, optimizer_d, reconstructions, scaler_d, step,
+                                 step_loss_dict, train_loader):
+        if epoch >= self.config['autoencoder_warm_up_epochs']:
+            for param in discriminator.parameters():
+                param.requires_grad = True
+            for param in self.autoencoder.parameters():
+                param.requires_grad = False
+
+            with autocast(enabled=True):
+                logits_fake = discriminator(reconstructions.contiguous().detach())[-1]
+                loss_d_fake = self.adv_loss(logits_fake, target_is_real=False, for_discriminator=True)
+                logits_real = discriminator(images.contiguous().detach())[-1]
+                loss_d_real = self.adv_loss(logits_real, target_is_real=True, for_discriminator=True)
+                discriminator_loss = (loss_d_fake + loss_d_real) * 0.5
+                step_loss_dict['disc_loss'] = discriminator_loss * self.config['adv_weight']
+
+            scaler_d.scale(step_loss_dict['disc_loss']).backward()
+
+            if (step + 1) % self.config['grad_accumulate_step'] == 0 or (step + 1) == len(train_loader):
+                # gradient clipping
+                if self.config['grad_clip_max_norm']:
+                    scaler_d.unscale_(optimizer_d)
+                    torch.nn.utils.clip_grad_norm_(discriminator.parameters(),
+                                                   max_norm=self.config['grad_clip_max_norm'])
+                scaler_d.step(optimizer_d)
+                scaler_d.update()
+                optimizer_d.zero_grad(set_to_none=True)
+
+    def train_generator_step(self, discriminator, epoch, images, optimizer_g, perceptual_loss, scaler_g, step,
+                             step_loss_dict, train_loader):
+        for param in discriminator.parameters():
+            param.requires_grad = False
+        for param in self.autoencoder.parameters():
+            param.requires_grad = True
+        # Generator part
+        with autocast(enabled=True):
+            if self.config['latent_space_type'] == 'vq':
+                reconstructions, quantization_loss = self.autoencoder(images)
+                step_loss_dict['reg_loss'] = quantization_loss * self.config['q_weight']
+            elif self.config['latent_space_type'] == 'vae':
+                reconstructions, z_mu, z_sigma = self.autoencoder(images)
+                step_loss_dict['reg_loss'] = self.get_kl_loss(z_mu, z_sigma) * self.config['kl_weight']
+
+            step_loss_dict['rec_loss'] = self.l1_loss(reconstructions.float(), images.float())
+            step_loss_dict['perc_loss'] = perceptual_loss(reconstructions.float(), images.float()) * self.config[
+                'perc_weight']
+            loss_g = step_loss_dict['rec_loss'] + step_loss_dict['perc_loss'] + step_loss_dict['reg_loss']
+
+            if epoch >= self.config['autoencoder_warm_up_epochs']:
+                logits_fake = discriminator(reconstructions.contiguous().float())[-1]
+                step_loss_dict['gen_loss'] = self.adv_loss(logits_fake, target_is_real=True, for_discriminator=False) * \
+                                             self.config['adv_weight']
+                loss_g += step_loss_dict['gen_loss']
+                # print(self.get_kl_loss(z_mu, z_sigma) * self.config['kl_weight'], recons_loss, p_loss * self.config['perc_weight'], generator_loss * self.config['adv_weight'])
+                # print(quantization_loss * self.config['q_weight'], recons_loss, p_loss * self.config['perc_weight'], generator_loss * self.config['adv_weight'])
+        scaler_g.scale(loss_g).backward()
+        if (step + 1) % self.config['grad_accumulate_step'] == 0 or (step + 1) == len(train_loader):
+            # gradient clipping
+            if self.config['grad_clip_max_norm']:
+                scaler_g.unscale_(optimizer_g)
+                torch.nn.utils.clip_grad_norm_(self.autoencoder.parameters(),
+                                               max_norm=self.config['grad_clip_max_norm'])
+            scaler_g.step(optimizer_g)
+            scaler_g.update()
+            optimizer_g.zero_grad(set_to_none=True)
+        return reconstructions
 
     def validate_one_epoch(self, val_loader, return_img_recon=False):
         self.autoencoder.eval()
@@ -166,16 +177,15 @@ class AutoEncoder:
             print(f"Time: {time.strftime('%H:%M:%S', time.gmtime(end))} - "
                   f"Validation Loss: {val_epoch_loss / len(val_loader):.4f}")
 
+        self.loss_dict['val_rec_loss'].append(val_epoch_loss / len(val_loader))
+
         if return_img_recon:
             image = images[0].unsqueeze(0) if len(images[0].shape) < 5 else images[0]
             reconstruction = reconstructions[0].unsqueeze(0) if len(reconstructions[0].shape) < 5 else \
                 reconstructions[0]
-            return val_epoch_loss / len(val_loader), image, reconstruction
-        else:
-            return val_epoch_loss / len(val_loader)
+            return image, reconstruction
 
-    def save_plots(self, image, reconstruction, gif_output_path, recon_loss_list=None, reg_loss_list=None, val_loss_list=None,
-                   gen_loss_list=None, disc_loss_list=None, perc_loss_list=None):
+    def save_plots(self, image, reconstruction, gif_output_path):
         if not os.path.exists(self.save_dict['plots']):
             os.makedirs(self.save_dict['plots'], exist_ok=True)
 
@@ -211,8 +221,11 @@ class AutoEncoder:
         create_gif_from_images(gif_images, gif_output_path)
 
         save_all_losses_path = os.path.join(self.save_dict['plots'], f"loss.png")
-        save_all_losses(gen_loss_list, disc_loss_list, recon_loss_list, val_loss_list, reg_loss_list,
-                        perc_loss_list, save_all_losses_path,  self.config['val_interval'])
+        save_all_losses(self.loss_dict, save_all_losses_path,  self.config['val_interval'])
+
+        loss_pickle_path = os.path.join("/".join(self.save_dict['plots'].split('/')[:-1]), 'loss_dict.pkl')
+        with open(loss_pickle_path, 'wb') as file:
+            pickle.dump(self.loss_dict, file)
 
     def save_model(self, epoch, validation_loss, optimizer, discriminator, disc_optimizer, scheduler=None,
                    disc_scheduler=None):
@@ -276,12 +289,6 @@ class AutoEncoder:
         scaler_d = GradScaler()
         total_start = time.time()
         start_epoch = 0
-        recon_loss_list = []
-        reg_loss_list = []
-        gen_loss_list = []
-        disc_loss_list = []
-        perc_loss_list = []
-        val_loss_list = []
 
         if self.config['load_model_path']:
             start_epoch = self.load_model(self.config['load_model_path'], optimizer=optimizer_g, scheduler=g_lr_scheduler,
@@ -289,29 +296,19 @@ class AutoEncoder:
                                           for_training=True)
 
         for epoch in range(start_epoch, self.config['n_epochs']):
-            recon_loss, reg_loss, gen_loss, disc_loss, perc_loss = self.train_one_epoch(epoch, train_loader, discriminator, perceptual_loss,
-                                                                                        optimizer_g, optimizer_d, scaler_g, scaler_d)
-            recon_loss_list.append(recon_loss)
-            reg_loss_list.append(reg_loss)
-            gen_loss_list.append(gen_loss)
-            disc_loss_list.append(disc_loss)
-            perc_loss_list.append(perc_loss)
+            self.train_one_epoch(epoch, train_loader, discriminator, perceptual_loss, optimizer_g, optimizer_d, scaler_g, scaler_d)
 
             if epoch % self.config['val_interval'] == 0:
                 if self.save_dict['plots']:
-                    val_loss, image, reconstruction = self.validate_one_epoch(val_loader, return_img_recon=True)
-                    val_loss_list.append(val_loss)
+                    image, reconstruction = self.validate_one_epoch(val_loader, return_img_recon=True)
                     gif_output_path = os.path.join(self.save_dict['plots'], f"epoch_{epoch}.gif")
-                    self.save_plots(image, reconstruction, gif_output_path, recon_loss_list=recon_loss_list, reg_loss_list=reg_loss_list,
-                                    val_loss_list=val_loss_list, gen_loss_list=gen_loss_list, disc_loss_list=disc_loss_list,
-                                    perc_loss_list=perc_loss_list)
+                    self.save_plots(image, reconstruction, gif_output_path)
                 else:
-                    val_loss = self.validate_one_epoch(val_loader)
-                    val_loss_list.append(val_loss)
+                    self.validate_one_epoch(val_loader)
 
                 if self.save_dict['checkpoints']:
-                    self.save_model(epoch, val_loss, optimizer_g, discriminator, optimizer_d, scheduler=g_lr_scheduler,
-                                    disc_scheduler=d_lr_scheduler)
+                    self.save_model(epoch, self.loss_dict['val_rec_loss'][-1], optimizer_g, discriminator, optimizer_d,
+                                    scheduler=g_lr_scheduler, disc_scheduler=d_lr_scheduler)
 
             if g_lr_scheduler:
                 g_lr_scheduler.step()

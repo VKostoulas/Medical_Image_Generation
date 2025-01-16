@@ -56,33 +56,25 @@ def save_main_losses(epoch_loss_list, val_epoch_loss_list, validation_interval, 
     print(f"Loss plot saved at {save_path}")
 
 
-def save_all_losses(gen_loss, disc_loss, train_recon_loss, val_recon_loss, regularization_loss,
-                    perceptual_loss, save_path, validation_interval):
-    """
-    Saves a plot of generator, discriminator, training reconstruction, validation reconstruction,
-    and perceptual losses per epoch.
+def save_all_losses(loss_dict, save_path, validation_interval):
 
-    Args:
-        gen_loss (list): Generator loss values per epoch.
-        disc_loss (list): Discriminator loss values per epoch.
-        train_recon_loss (list): Training reconstruction loss values per epoch.
-        val_recon_loss (list): Validation reconstruction loss values per epoch.
-        perceptual_loss (list): Perceptual loss values per epoch.
-        save_path (str): Path to save the plot.
-    """
-    epochs = range(len(train_recon_loss))  # Epoch indices
-    val_epochs = list(range(0, len(train_recon_loss), validation_interval))
+    epochs = range(len(loss_dict['rec_loss']))  # Epoch indices
+    val_epochs = list(range(0, len(loss_dict['rec_loss']), validation_interval))
+
+    mapping_names_dict = {'rec_loss': 'Train Reconstruction Loss', 'reg_loss': 'Regularization Loss',
+                          'gen_loss': 'Generator Loss', 'disc_loss': 'Discriminator Loss', 'perc_loss': 'Perceptual Loss'}
 
     plt.figure(figsize=(10, 8))
-    plt.plot(epochs, gen_loss, label="Generator Loss", marker='o', linestyle='-')
-    plt.plot(epochs, disc_loss, label="Discriminator Loss", marker='o', linestyle='-')
-    plt.plot(epochs, train_recon_loss, label="Train Reconstruction Loss", marker='o', linestyle='-')
-    plt.plot(val_epochs, val_recon_loss, label="Val Reconstruction Loss", marker='o', linestyle='-')
-    plt.plot(epochs, regularization_loss, label="Regularization Loss", marker='o', linestyle='-')
-    plt.plot(epochs, perceptual_loss, label="Perceptual Loss", marker='o', linestyle='-')
 
+    for key in mapping_names_dict:
+        if key == 'val_rec_loss':
+            plt.plot(val_epochs, loss_dict[key], label="Val Reconstruction Loss", marker='o', linestyle='-')
+        else:
+            plt.plot(epochs, loss_dict[key], label=mapping_names_dict[key], marker='o', linestyle='-')
+
+    plt.yscale('log')
     plt.xlabel("Epoch")
-    plt.ylabel("Loss")
+    plt.ylabel("log(loss)")
     plt.title("Losses per Epoch")
     plt.legend()
     plt.grid(True)
