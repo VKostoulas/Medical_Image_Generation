@@ -46,6 +46,7 @@ class AutoEncoder:
         epoch_gen_loss = 0
         epoch_disc_loss = 0
         epoch_perc_loss = 0
+        epoch_reg_loss = 0
         disable_prog_bar = self.config['output_mode'] == 'log' or not self.config['progress_bar']
         start = time.time()
 
@@ -57,18 +58,23 @@ class AutoEncoder:
             for step, batch in progress_bar:
                 images = batch["image"].to(self.device)
 
+                for param in discriminator.parameters():
+                    param.requires_grad = False
+                for param in self.autoencoder.parameters():
+                    param.requires_grad = True
+
                 # Generator part
                 with autocast(enabled=True):
                     if self.config['latent_space_type'] == 'vq':
                         reconstructions, quantization_loss = self.autoencoder(images)
-                        loss_g = quantization_loss * self.config['q_weight']
+                        regularization_loss = quantization_loss * self.config['q_weight']
                     elif self.config['latent_space_type'] == 'vae':
                         reconstructions, z_mu, z_sigma = self.autoencoder(images)
-                        loss_g = self.get_kl_loss(z_mu, z_sigma) * self.config['kl_weight']
+                        regularization_loss = self.get_kl_loss(z_mu, z_sigma) * self.config['kl_weight']
 
                     recons_loss = self.l1_loss(reconstructions.float(), images.float())
                     p_loss = perceptual_loss(reconstructions.float(), images.float()) * self.config['perc_weight']
-                    loss_g += recons_loss + p_loss
+                    loss_g = recons_loss + p_loss + regularization_loss
 
                     if epoch >= self.config['autoencoder_warm_up_epochs']:
                         logits_fake = discriminator(reconstructions.contiguous().float())[-1]
@@ -90,6 +96,11 @@ class AutoEncoder:
 
                 # Discriminator part
                 if epoch >= self.config['autoencoder_warm_up_epochs']:
+                    for param in discriminator.parameters():
+                        param.requires_grad = True
+                    for param in self.autoencoder.parameters():
+                        param.requires_grad = False
+
                     with autocast(enabled=True):
                         logits_fake = discriminator(reconstructions.contiguous().detach())[-1]
                         loss_d_fake = self.adv_loss(logits_fake, target_is_real=False, for_discriminator=True)
@@ -111,12 +122,14 @@ class AutoEncoder:
 
                 epoch_recon_loss += recons_loss.item()
                 epoch_perc_loss += p_loss.item()
+                epoch_reg_loss += regularization_loss.item()
                 if epoch >= self.config['autoencoder_warm_up_epochs']:
                     epoch_gen_loss += generator_loss.item()
                     epoch_disc_loss += loss_d.item()
 
                 progress_bar.set_postfix({
                     "recons_loss": epoch_recon_loss / (step + 1),
+                    "reg_loss": epoch_reg_loss / (step + 1),
                     "gen_loss": epoch_gen_loss / (step + 1),
                     "disc_loss": epoch_disc_loss / (step + 1),
                     "perc_loss": epoch_perc_loss / (step + 1)
@@ -127,7 +140,7 @@ class AutoEncoder:
             print(f"Epoch {epoch} - Time: {time.strftime('%H:%M:%S', time.gmtime(end))} - "
             f"Train Loss: {epoch_recon_loss / len(train_loader):.4f}")
 
-        return (epoch_recon_loss / len(train_loader), epoch_gen_loss / len(train_loader),
+        return (epoch_recon_loss / len(train_loader), epoch_reg_loss/ len(train_loader), epoch_gen_loss / len(train_loader),
                 epoch_disc_loss / len(train_loader), epoch_perc_loss / len(train_loader))
 
     def validate_one_epoch(self, val_loader, return_img_recon=False):
@@ -161,7 +174,7 @@ class AutoEncoder:
         else:
             return val_epoch_loss / len(val_loader)
 
-    def save_plots(self, image, reconstruction, gif_output_path, recon_loss_list=None, val_loss_list=None,
+    def save_plots(self, image, reconstruction, gif_output_path, recon_loss_list=None, reg_loss_list=None, val_loss_list=None,
                    gen_loss_list=None, disc_loss_list=None, perc_loss_list=None):
         if not os.path.exists(self.save_dict['plots']):
             os.makedirs(self.save_dict['plots'], exist_ok=True)
@@ -198,7 +211,8 @@ class AutoEncoder:
         create_gif_from_images(gif_images, gif_output_path)
 
         save_all_losses_path = os.path.join(self.save_dict['plots'], f"loss.png")
-        save_all_losses(gen_loss_list, disc_loss_list, recon_loss_list, val_loss_list, perc_loss_list, save_all_losses_path,  self.config['val_interval'])
+        save_all_losses(gen_loss_list, disc_loss_list, recon_loss_list, val_loss_list, reg_loss_list,
+                        perc_loss_list, save_all_losses_path,  self.config['val_interval'])
 
     def save_model(self, epoch, validation_loss, optimizer, discriminator, disc_optimizer, scheduler=None,
                    disc_scheduler=None):
@@ -263,6 +277,7 @@ class AutoEncoder:
         total_start = time.time()
         start_epoch = 0
         recon_loss_list = []
+        reg_loss_list = []
         gen_loss_list = []
         disc_loss_list = []
         perc_loss_list = []
@@ -274,9 +289,10 @@ class AutoEncoder:
                                           for_training=True)
 
         for epoch in range(start_epoch, self.config['n_epochs']):
-            recon_loss, gen_loss, disc_loss, perc_loss = self.train_one_epoch(epoch, train_loader, discriminator, perceptual_loss,
-                                                                              optimizer_g, optimizer_d, scaler_g, scaler_d)
+            recon_loss, reg_loss, gen_loss, disc_loss, perc_loss = self.train_one_epoch(epoch, train_loader, discriminator, perceptual_loss,
+                                                                                        optimizer_g, optimizer_d, scaler_g, scaler_d)
             recon_loss_list.append(recon_loss)
+            reg_loss_list.append(reg_loss)
             gen_loss_list.append(gen_loss)
             disc_loss_list.append(disc_loss)
             perc_loss_list.append(perc_loss)
@@ -286,7 +302,7 @@ class AutoEncoder:
                     val_loss, image, reconstruction = self.validate_one_epoch(val_loader, return_img_recon=True)
                     val_loss_list.append(val_loss)
                     gif_output_path = os.path.join(self.save_dict['plots'], f"epoch_{epoch}.gif")
-                    self.save_plots(image, reconstruction, gif_output_path, recon_loss_list=recon_loss_list,
+                    self.save_plots(image, reconstruction, gif_output_path, recon_loss_list=recon_loss_list, reg_loss_list=reg_loss_list,
                                     val_loss_list=val_loss_list, gen_loss_list=gen_loss_list, disc_loss_list=disc_loss_list,
                                     perc_loss_list=perc_loss_list)
                 else:

@@ -56,7 +56,8 @@ def save_main_losses(epoch_loss_list, val_epoch_loss_list, validation_interval, 
     print(f"Loss plot saved at {save_path}")
 
 
-def save_all_losses(gen_loss, disc_loss, train_recon_loss, val_recon_loss, perceptual_loss, save_path, validation_interval):
+def save_all_losses(gen_loss, disc_loss, train_recon_loss, val_recon_loss, regularization_loss,
+                    perceptual_loss, save_path, validation_interval):
     """
     Saves a plot of generator, discriminator, training reconstruction, validation reconstruction,
     and perceptual losses per epoch.
@@ -77,6 +78,7 @@ def save_all_losses(gen_loss, disc_loss, train_recon_loss, val_recon_loss, perce
     plt.plot(epochs, disc_loss, label="Discriminator Loss", marker='o', linestyle='-')
     plt.plot(epochs, train_recon_loss, label="Train Reconstruction Loss", marker='o', linestyle='-')
     plt.plot(val_epochs, val_recon_loss, label="Val Reconstruction Loss", marker='o', linestyle='-')
+    plt.plot(epochs, regularization_loss, label="Regularization Loss", marker='o', linestyle='-')
     plt.plot(epochs, perceptual_loss, label="Perceptual Loss", marker='o', linestyle='-')
 
     plt.xlabel("Epoch")
