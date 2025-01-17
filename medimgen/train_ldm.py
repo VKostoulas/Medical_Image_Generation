@@ -266,13 +266,11 @@ class LDM:
             if epoch % self.config['val_interval'] == 0:
                 val_loss = self.validate_epoch(val_loader)
                 val_epoch_loss_list.append(val_loss)
-                if self.save_dict['plots']:
-                    sample_verbose = not (self.config['output_mode'] == 'log' or not self.config['progress_bar'])
-                    sampled_image = self.sample_image(z_shape, sample_verbose)
-                    gif_output_path = os.path.join(self.save_dict['plots'], f"epoch_{epoch}.gif")
-                    self.save_plots(sampled_image, gif_output_path, epoch_loss_list, val_epoch_loss_list)
-                if self.save_dict['checkpoints']:
-                    self.save_model(epoch, val_loss, optimizer, lr_scheduler)
+                sample_verbose = not (self.config['output_mode'] == 'log' or not self.config['progress_bar'])
+                sampled_image = self.sample_image(z_shape, sample_verbose)
+                gif_output_path = os.path.join(self.save_dict['plots'], f"epoch_{epoch}.gif")
+                self.save_plots(sampled_image, gif_output_path, epoch_loss_list, val_epoch_loss_list)
+                self.save_model(epoch, val_loss, optimizer, lr_scheduler)
 
             if lr_scheduler:
                 lr_scheduler.step()

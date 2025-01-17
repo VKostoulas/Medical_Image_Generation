@@ -3,13 +3,15 @@
 ### Description
 Training and sampling with 2D or 3D image generation models on your dataset
 has never been that easy! Simply, create your dataset, and that's it!
-Go train your model! Assuming that you have enough GPU memory (these 3D models
-can take a colossal amount of memory) and you know exactly your architecture... Or
-enjoy hyperparameter tuning!
+Go train your model! Don't worry about GPU memory! (these 3D models
+can take a colossal amount of memory) With techniques like mixed precision,
+activation checkpointing, and gradient accumulation you will fit your model in
+the GPU! I just hope you know exactly your architecture... Or
+enjoy hyperparameter tuning! We might also have some tips for this too.
 
 ### Installation
 
-- python 3.9.17, cuda 11.8, and at least one faaat GPU
+- python 3.9.17, cuda 11.8, and at least one GPU
 - pip install medimgen
 
 
@@ -84,13 +86,13 @@ preprocess_dataset --task your_task -intensity
 
 ### Configuration
 All the global settings of the projects are stored in a configuration file. The 
-*config.yaml* file in the configs folder is a basic configuration. You could use this 
-as your configuration file, but it is highly recommended to create your own config
-files based on different experiments. You can create your own files and 
-call them when running the main.py (see next section), but keep all the config files 
-in the /medimgen/configs folder. It is handy to store different configuration files 
-for different experiments (e.g., one file for diffusion model and one for latent 
-diffusion model).
+*config.yaml* file in the configs folder is a basic configuration example. You could 
+use this as your configuration file, but it is highly recommended to create your own 
+config files based on different experiments. You can create your own files and 
+call them when running commands of this project (see next section), but keep all the 
+config files in the /medimgen/configs folder. It is handy to store different 
+configuration files for different experiments (e.g., one file for diffusion model 
+and one for latent diffusion model).
 
 ### Training
 
@@ -111,7 +113,7 @@ To train a Latent Diffusion Model, first we need to train an autoencoder:
 train_autoencoder --task Task01_BrainTumour --config ldm_config --output_mode log
 ```
 After finishing training, we can then train the Latent Diffusion Model, optionally
-by adding the path to the VQ-GAN checkpoint in config file, or by providing it:
+by adding the path to the autoencoder checkpoint in config file, or by providing it:
 
 ```bash
 train_ldm --task Task01_BrainTumour --config ldm_config --output_mode log \
@@ -119,20 +121,19 @@ train_ldm --task Task01_BrainTumour --config ldm_config --output_mode log \
 ```
 
 #### Output Files
-Running an experiment will create a directory in your SAVEPATH. Depending 
-on your configuration the following folders or files will be created: 
-- checkpoints folder: the checkpoints of the last and the best epoch of the training 
-will be saved here. For ddpm and ldm models only 2 checkpoints will be saved (the 
-last and the best). For vqgan model 4 checkpoints will be saved (2 for generator and
-2 for discriminator).
-- model.graph: images containing the graphs of the models involved in the training
-- plots folder: in this folder a main_loss.png file will be saved for every kind of
-training, showing the training and validation loss per epoch. For the vqgan, an 
-additional gan_loss.png will be saved showing the progression of generator and 
-discriminator. Moreover, a gif will be saved in this folder for every epoch that we
-perform a validation step. For ddpm and ldm, the gifs contain slices of a generated 
-3D example across the z direction, while for vqgan, an actual image and its
-reconstruction are visualized.
+Running an experiment will create a directory in your SAVEPATH with the following 
+folders and files: 
+- checkpoints folder: contains the checkpoints of the last and the best epoch of 
+training (the best based on the validation reconstruction loss)
+- plots folder: in this folder a loss.png file will be saved for every kind of
+training, showing the training and validation losses per epoch. Moreover, a gif will 
+be saved in this folder for every epoch that we perform a validation step. For ddpm 
+and ldm, the gifs contain slices of a generated 3D example across the z direction, 
+while for the autoencoder, an actual image and its reconstruction are visualized.
+- config.yaml: a yaml file containing all the config parameters of the experiment
+- loss_dict.pkl: a file containing lists with loss values per epoch
+- log.txt (optional): if you have set output_mode to be 'log' then also a log file 
+will be created instead of printing everything on screen
 
 #### Tips for Training
 
@@ -147,7 +148,7 @@ respectively, gives much better and realistic results.
 
 ### Sampling
 
-To sample with your favorite DDPM run:
+To sample with your favorite diffusion model run:
 
 ```bash
 sample_images --model_path /path_to_ddpm_checkpoint --config ddpm_config --n_images 10 --save_path /path_to_save_folder
