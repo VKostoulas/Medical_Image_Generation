@@ -61,16 +61,15 @@ def save_all_losses(loss_dict, save_path, validation_interval):
     epochs = range(len(loss_dict['rec_loss']))  # Epoch indices
     val_epochs = list(range(0, len(loss_dict['rec_loss']), validation_interval))
 
-    mapping_names_dict = {'rec_loss': 'Train Reconstruction Loss', 'reg_loss': 'Regularization Loss',
-                          'gen_loss': 'Generator Loss', 'disc_loss': 'Discriminator Loss', 'perc_loss': 'Perceptual Loss'}
+    mapping_names_dict = {'rec_loss': 'Train Reconstruction Loss', 'val_rec_loss': 'Val Reconstruction Loss',
+                          'reg_loss': 'Regularization Loss', 'gen_loss': 'Generator Loss',
+                          'disc_loss': 'Discriminator Loss', 'perc_loss': 'Perceptual Loss'}
 
     plt.figure(figsize=(10, 8))
 
     for key in mapping_names_dict:
-        if key == 'val_rec_loss':
-            plt.plot(val_epochs, loss_dict[key], label="Val Reconstruction Loss", marker='o', linestyle='-')
-        else:
-            plt.plot(epochs, loss_dict[key], label=mapping_names_dict[key], marker='o', linestyle='-')
+        temp_epochs = val_epochs if key == 'val_rec_loss' else epochs
+        plt.plot(temp_epochs, loss_dict[key], label=mapping_names_dict[key], marker='o', linestyle='-')
 
     plt.yscale('log')
     plt.xlabel("Epoch")
