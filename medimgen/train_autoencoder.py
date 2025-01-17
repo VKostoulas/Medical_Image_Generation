@@ -83,6 +83,7 @@ class AutoEncoder:
             print_string = f"Epoch {epoch} - Time: {time.strftime('%H:%M:%S', time.gmtime(end))}"
             for key in epoch_loss_dict:
                 print_string +=  f" - {key}: {epoch_loss_dict[key]:.4f}"
+            print(print_string)
 
         for key in epoch_loss_dict:
             self.loss_dict[key].append(epoch_loss_dict[key])
@@ -299,16 +300,11 @@ class AutoEncoder:
             self.train_one_epoch(epoch, train_loader, discriminator, perceptual_loss, optimizer_g, optimizer_d, scaler_g, scaler_d)
 
             if epoch % self.config['val_interval'] == 0:
-                if self.save_dict['plots']:
-                    image, reconstruction = self.validate_one_epoch(val_loader, return_img_recon=True)
-                    gif_output_path = os.path.join(self.save_dict['plots'], f"epoch_{epoch}.gif")
-                    self.save_plots(image, reconstruction, gif_output_path)
-                else:
-                    self.validate_one_epoch(val_loader)
-
-                if self.save_dict['checkpoints']:
-                    self.save_model(epoch, self.loss_dict['val_rec_loss'][-1], optimizer_g, discriminator, optimizer_d,
-                                    scheduler=g_lr_scheduler, disc_scheduler=d_lr_scheduler)
+                image, reconstruction = self.validate_one_epoch(val_loader, return_img_recon=True)
+                gif_output_path = os.path.join(self.save_dict['plots'], f"epoch_{epoch}.gif")
+                self.save_plots(image, reconstruction, gif_output_path)
+                self.save_model(epoch, self.loss_dict['val_rec_loss'][-1], optimizer_g, discriminator, optimizer_d,
+                                scheduler=g_lr_scheduler, disc_scheduler=d_lr_scheduler)
 
             if g_lr_scheduler:
                 g_lr_scheduler.step()
@@ -319,7 +315,7 @@ class AutoEncoder:
                 print(f"Adjusting learning rate of discriminator to {d_lr_scheduler.get_last_lr()[0]:.4e}.")
 
         total_time = time.time() - total_start
-        print(f"Training completed in {total_time:.2f} seconds.")
+        print(f"Total training time: {time.strftime('%H:%M:%S', time.gmtime(total_time))}")
 
 
 def main():

@@ -107,7 +107,3 @@ discriminator_params:
 
 progress_bar: true  # Enable progress bars
 output_mode: "verbose"  # Output mode (log or verbose)
-save_model: false  # Save model checkpoints
-save_graph: false  # Save computation graph
-save_plots: true  # Save training plots
-save_profile: false  # Save profiling information

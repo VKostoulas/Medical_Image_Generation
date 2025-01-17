@@ -145,11 +145,6 @@ def add_autoencoder_training_args(parser):
 def add_additional_args(parser):
     parser.add_argument("--progress_bar", type=lambda x: x.lower() == 'true', help="Use progress bars")
     parser.add_argument("--output_mode", type=str, help="Output mode")
-    parser.add_argument("--save_model", type=lambda x: x.lower() == 'true', help="Whether to save the model")
-    parser.add_argument("--save_graph", type=lambda x: x.lower() == 'true',
-                        help="Whether to save the computation graph")
-    parser.add_argument("--save_plots", type=lambda x: x.lower() == 'true', help="Whether to save plots")
-    parser.add_argument("--save_profile", type=lambda x: x.lower() == 'true', help="Whether to save the profile")
 
 
 def parse_arguments(description, args_mode):
@@ -294,7 +289,7 @@ def update_config_with_args(config, args, args_mode):
                 config["vae_params"][key] = getattr(args, f"vae_{key}")
 
     # Additional arguments
-    for key in ["progress_bar", "output_mode", "save_model", "save_graph", "save_plots", "save_profile"]:
+    for key in ["progress_bar", "output_mode"]:
         if getattr(args, key, None) is not None:
             config[key] = getattr(args, key)
 
@@ -361,33 +356,21 @@ def create_save_path_dict(config):
     Returns:
         dict: A dictionary where keys are folder names and values are paths or False (if saving is disabled).
     """
-    save_dict = {
-        'checkpoints': config['save_model'],
-        'graph': config['save_graph'],
-        'plots': config['save_plots'],
-        'profile': config['save_profile']
-    }
-
-    # If no saving is enabled, return the dictionary without creating directories
-    if not any(save_dict.values()):
-        return save_dict, ''
-
     # Generate a timestamped save directory
     timestamp = datetime.now().strftime("%Y_%m_%d-%I_%M_%S_%p")
     save_path = os.path.join(config['save_path'], timestamp)
+    os.mkdir(save_path)
 
     # Setup logging only if mode is 'log'
     if config["output_mode"] == "log":
         log_file_path = os.path.join(save_path, 'log_file.txt')
         setup_logging(log_file_path)
 
-    # Create subdirectories for enabled save types
-    for dir_name, should_save in save_dict.items():
-        if should_save:
-            temp_save_path = os.path.join(save_path, dir_name)
-            save_dict[dir_name] = temp_save_path
-        else:
-            save_dict[dir_name] = False
+    # save the config parameters in a file
+    with open(os.path.join(save_path, 'config.yaml'), 'w') as file:
+        yaml.dump(config, file, default_flow_style=False,  sort_keys=False)
+
+    save_dict = {'checkpoints': os.path.join(save_path, 'checkpoints'), 'plots': os.path.join(save_path, 'plots')}
 
     return save_dict, save_path
 
