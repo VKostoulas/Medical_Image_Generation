@@ -160,9 +160,12 @@ class LDM:
 
         return val_epoch_loss / len(val_loader)
 
-    def sample_image(self, z_shape, verbose=False):
+    def sample_image(self, z_shape, verbose=False, seed=None):
         self.ddpm.eval()
         self.autoencoder.eval()
+        if seed:
+            # set seed for reproducible sampling
+            torch.manual_seed(seed)
         input_noise = torch.randn(1, *z_shape[1:]).to(self.device)
         self.scheduler.set_timesteps(num_inference_steps=self.config['time_scheduler_params']['num_train_timesteps'])
         with torch.no_grad():
@@ -254,6 +257,7 @@ class LDM:
         start_epoch = 0
         epoch_loss_list = []
         val_epoch_loss_list = []
+        sample_seed = 42
 
         if self.config['load_model_path']:
             start_epoch, = self.load_model(self.config['load_model_path'], optimizer=optimizer, lr_scheduler=lr_scheduler,
@@ -267,7 +271,7 @@ class LDM:
                 val_loss = self.validate_epoch(val_loader)
                 val_epoch_loss_list.append(val_loss)
                 sample_verbose = not (self.config['output_mode'] == 'log' or not self.config['progress_bar'])
-                sampled_image = self.sample_image(z_shape, sample_verbose)
+                sampled_image = self.sample_image(z_shape, sample_verbose, seed=sample_seed)
                 gif_output_path = os.path.join(self.save_dict['plots'], f"epoch_{epoch}.gif")
                 self.save_plots(sampled_image, gif_output_path, epoch_loss_list, val_epoch_loss_list)
                 self.save_model(epoch, val_loss, optimizer, lr_scheduler)

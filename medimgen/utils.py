@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 
 
-def create_gif_from_images(images, output_path, duration=100):
+def create_gif_from_images(images, output_path, duration=200):
     """
     Creates a GIF from a list of PIL.Image objects.
 
