@@ -15,10 +15,11 @@ from torch.nn import L1Loss
 from torchinfo import summary
 from torch.cuda.amp import GradScaler, autocast
 from monai.utils import set_determinism
-from generative.networks.nets import VQVAE, AutoencoderKL, PatchDiscriminator
+from generative.networks.nets import VQVAE, PatchDiscriminator
 from generative.losses import PatchAdversarialLoss, PerceptualLoss
 
 from medimgen.data_processing import get_data_loaders
+from medimgen.autoencoderkl_with_strides import AutoencoderKL
 from medimgen.configuration import (load_config, parse_arguments, update_config_with_args, filter_config_by_mode,
                                     print_configuration, create_save_path_dict)
 from medimgen.utils import create_gif_from_images, save_all_losses

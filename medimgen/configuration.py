@@ -118,6 +118,10 @@ def add_vae_args(parser):
                         help="Use activation checkpointing for VAE")
     parser.add_argument("--vae_use_convtranspose", type=lambda x: x.lower() == 'true',
                         help="Use ConvTranspose layers in the VAE")
+    parser.add_argument("--vae_downsample_parameters", nargs='+', type=eval,
+                        help="Parameters for downsampling in the model")
+    parser.add_argument("--vae_upsample_parameters", nargs='+', type=eval,
+                        help="Parameters for upsampling in the model")
 
 
 def add_autoencoder_training_args(parser):
@@ -283,7 +287,7 @@ def update_config_with_args(config, args, args_mode):
             "spatial_dims", "in_channels", "out_channels", "num_channels",
             "latent_channels", "num_res_blocks", "norm_num_groups", "attention_levels",
             "with_encoder_nonlocal_attn", "with_decoder_nonlocal_attn", "use_flash_attention",
-            "use_checkpointing", "use_convtranspose"
+            "use_checkpointing", "use_convtranspose", "downsample_parameters", "upsample_parameters"
         ]:
             if getattr(args, f"vae_{key}", None) is not None:
                 config["vae_params"][key] = getattr(args, f"vae_{key}")

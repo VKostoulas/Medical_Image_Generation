@@ -23,9 +23,10 @@ def get_data_loaders(config):
                             split_ratios=config['splitting'], transformation_args=config['transformations'],
                             channel_ids=config['channels'])
 
-    loader_args = dict(batch_size=config['batch_size'], num_workers=8, pin_memory=True)
-    train_loader = DataLoader(train_ds, shuffle=True, prefetch_factor=config['batch_size'], **loader_args)
-    val_loader = DataLoader(val_ds, shuffle=False, prefetch_factor=config['batch_size'], **loader_args)
+    loader_args = dict(batch_size=config['batch_size'], num_workers=4, pin_memory=True,
+                       persistent_workers=True, prefetch_factor=2)
+    train_loader = DataLoader(train_ds, shuffle=True, **loader_args)
+    val_loader = DataLoader(val_ds, shuffle=False, **loader_args)
     return train_loader, val_loader
 
 
@@ -98,15 +99,12 @@ class MedicalDataset(Dataset):
     def __getitem__(self, idx):
         name = self.ids[idx]
         image = self.load_image(name)
-        # scale to 0-1 for augmentations
+        image = self.transform(image)
+        # scale to 0-1
         min_val = np.min(image)
         max_val = np.max(image)
         image = (image - min_val) / (max_val - min_val)
-        image = self.transform(image)
-        # scale to -1 1
-        # min_val = np.min(image)
-        # max_val = np.max(image)
-        # image = 2 * (image - min_val) / (max_val - min_val) - 1
+
         image = torch.as_tensor(image).float()
         image = torch.squeeze(image, dim=0)
         image = image.contiguous()
@@ -140,7 +138,7 @@ def define_nnunet_transformations(params, validation=False, border_val_seg=-1, r
         gamma_retain_stats = True
         gamma_range = (0.7, 1.5)
         p_gamma = 0.15
-        mirror_axes = (1,)
+        mirror_axes = (2,)
         border_mode_data = "constant"
 
         tr_transforms.append(SpatialTransform(

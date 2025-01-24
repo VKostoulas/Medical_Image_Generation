@@ -91,6 +91,8 @@ vae_params:
   use_flash_attention: false
   use_checkpointing: false
   use_convtranspose: false
+  downsample_parameters: [ [ [ 2, 2, 2 ], [ 4, 4, 4 ], [ 1, 1, 1 ] ] ]
+  upsample_parameters: [ [ [ 2, 2, 2 ], [ 4, 4, 4 ], [ 1, 1, 1 ] ] ]
 
 perceptual_params:
   spatial_dims: 3  # Spatial dimensions for perceptual parameters
