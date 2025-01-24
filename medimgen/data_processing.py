@@ -23,8 +23,7 @@ def get_data_loaders(config):
                             split_ratios=config['splitting'], transformation_args=config['transformations'],
                             channel_ids=config['channels'])
 
-    loader_args = dict(batch_size=config['batch_size'], num_workers=4, pin_memory=True,
-                       persistent_workers=True, prefetch_factor=2)
+    loader_args = dict(batch_size=config['batch_size'], num_workers=4, pin_memory=True, prefetch_factor=2)
     train_loader = DataLoader(train_ds, shuffle=True, **loader_args)
     val_loader = DataLoader(val_ds, shuffle=False, **loader_args)
     return train_loader, val_loader
