@@ -15,13 +15,14 @@ from PIL import Image
 from torchinfo import summary
 from monai.utils import set_determinism
 from generative.inferers import DiffusionInferer, LatentDiffusionInferer
-from generative.networks.nets import DiffusionModelUNet, AutoencoderKL
+from generative.networks.nets import DiffusionModelUNet
 from generative.networks.schedulers import DDPMScheduler
 from generative.networks.nets import VQVAE
 
 from medimgen.data_processing import get_data_loaders
 from medimgen.configuration import (load_config, parse_arguments, update_config_with_args, filter_config_by_mode,
                                     print_configuration, create_save_path_dict)
+from medimgen.autoencoderkl_with_strides import AutoencoderKL
 from medimgen.utils import create_gif_from_images, save_main_losses
 
 
