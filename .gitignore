@@ -3,14 +3,14 @@
 
 # Allow specific files or directories
 !.gitignore              # The .gitignore file itself
-!requirements.txt        # Dependency file
 !README.md               # Project documentation
-!setup.py
+!pyproject.toml
 
 # Include the Python package directory
 !medimgen/
 !medimgen/__init__.py
 !medimgen/autoencoderkl_with_strides.py
+!medimgen/diffusion_model_unet_with_strides.py
 !medimgen/configuration.py
 !medimgen/data_processing.py
 !medimgen/preprocess_dataset.py
@@ -21,7 +21,8 @@
 
 # Allow the folder
 !medimgen/configs/
+
 # Ignore all files in the folder
-medimgen/configs/*
+ medimgen/configs/*
 # Allow the specific file
-!/medimgen/configs/config.yaml
+ !/medimgen/configs/config.yaml

@@ -1,11 +1,16 @@
 import warnings
 warnings.filterwarnings("ignore")
 
+import matplotlib
+matplotlib.use('Agg')
+
 import os
 import sys
+import glob
 import torch
 import time
 import pickle
+import argparse
 import matplotlib.pyplot as plt
 
 from io import BytesIO
@@ -20,20 +25,30 @@ from generative.losses import PatchAdversarialLoss, PerceptualLoss
 
 from medimgen.data_processing import get_data_loaders
 from medimgen.autoencoderkl_with_strides import AutoencoderKL
-from medimgen.configuration import (load_config, parse_arguments, update_config_with_args, filter_config_by_mode,
-                                    print_configuration, create_save_path_dict)
-from medimgen.utils import create_gif_from_images, save_all_losses
+from medimgen.configuration import load_config
+from medimgen.utils import create_2d_image_reconstruction_plot, create_gif_from_images, save_all_losses
 
 
 class AutoEncoder:
-    def __init__(self, config, autoencoder, device, save_dict):
+    def __init__(self, config, latent_space_type='vae'):
         self.config = config
-        self.autoencoder = autoencoder
-        self.device = device
-        self.save_dict = save_dict
 
         self.l1_loss = L1Loss()
         self.adv_loss = PatchAdversarialLoss(criterion="least_squares")
+
+        if torch.cuda.is_available():
+            self.device = torch.device("cuda")
+            print(f"Using device: {torch.cuda.get_device_name(0)}")
+        else:
+            self.device = torch.device("cpu")
+            print("Using device: CPU")
+
+        if latent_space_type == 'vq':
+            self.autoencoder = VQVAE(**config['vqvae_params']).to(self.device)
+        elif latent_space_type == 'vae':
+            self.autoencoder = AutoencoderKL(**config['vae_params']).to(self.device)
+        else:
+            raise ValueError("Invalid latent_space_type. Choose 'vq' or 'vae'.")
 
         if self.config['load_model_path']:
             # update loss_dict from previous training, as we are continuing training
@@ -47,7 +62,9 @@ class AutoEncoder:
 
     @staticmethod
     def get_kl_loss(z_mu, z_sigma):
-        kl_loss = 0.5 * torch.sum(z_mu.pow(2) + z_sigma.pow(2) - torch.log(z_sigma.pow(2)) - 1, dim=[1, 2, 3, 4])
+        kl_loss = 0.5 * (z_mu.pow(2) + z_sigma.pow(2) - torch.log(z_sigma.pow(2)) - 1)
+        spatial_dims = list(range(1, len(z_mu.shape)))  # [1,2,3] for 2D, [1,2,3,4] for 3D
+        kl_loss = torch.sum(kl_loss, dim=spatial_dims)
         return torch.sum(kl_loss) / kl_loss.shape[0]
 
     def train_one_epoch(self, epoch, train_loader, discriminator, perceptual_loss, optimizer_g, optimizer_d, scaler_g,
@@ -125,16 +142,15 @@ class AutoEncoder:
             param.requires_grad = True
         # Generator part
         with autocast(enabled=True):
-            if self.config['latent_space_type'] == 'vq':
+            if isinstance(self.autoencoder, VQVAE):
                 reconstructions, quantization_loss = self.autoencoder(images)
                 step_loss_dict['reg_loss'] = quantization_loss * self.config['q_weight']
-            elif self.config['latent_space_type'] == 'vae':
+            elif isinstance(self.autoencoder, AutoencoderKL):
                 reconstructions, z_mu, z_sigma = self.autoencoder(images)
                 step_loss_dict['reg_loss'] = self.get_kl_loss(z_mu, z_sigma) * self.config['kl_weight']
 
             step_loss_dict['rec_loss'] = self.l1_loss(reconstructions.float(), images.float())
-            step_loss_dict['perc_loss'] = perceptual_loss(reconstructions.float(), images.float()) * self.config[
-                'perc_weight']
+            step_loss_dict['perc_loss'] = perceptual_loss(reconstructions.float(), images.float()) * self.config['perc_weight']
             loss_g = step_loss_dict['rec_loss'] + step_loss_dict['perc_loss'] + step_loss_dict['reg_loss']
 
             if epoch >= self.config['autoencoder_warm_up_epochs']:
@@ -187,54 +203,77 @@ class AutoEncoder:
                 reconstructions[0]
             return image, reconstruction
 
-    def save_plots(self, image, reconstruction, gif_output_path):
-        if not os.path.exists(self.save_dict['plots']):
-            os.makedirs(self.save_dict['plots'], exist_ok=True)
+    def get_optimizers_and_lr_schedules(self, discriminator):
+        # optimizer_g = torch.optim.Adam(params=self.autoencoder.parameters(), lr=self.config['ae_learning_rate'])
+        # optimizer_d = torch.optim.Adam(params=discriminator.parameters(), lr=self.config['d_learning_rate'])
 
-        num_slices = image.shape[2]  # Assuming the image is [batch, channel, x, y, z]
-        gif_images = []
+        optimizer_g = torch.optim.SGD(self.autoencoder.parameters(), self.config['ae_learning_rate'],
+                                      weight_decay=self.config['weight_decay'], momentum=0.99, nesterov=True)
+        optimizer_d = torch.optim.SGD(discriminator.parameters(), self.config['d_learning_rate'],
+                                      weight_decay=self.config['weight_decay'], momentum=0.99, nesterov=True)
 
-        for slice_idx in range(num_slices):
-            plt.figure(figsize=(4, 2))  # Adjusting the figsize for side-by-side plots
-            # Plot the original image slice
-            slice_image = image.cpu()[0, 0, slice_idx, :, :]
-            plt.subplot(1, 2, 1)
-            plt.imshow(slice_image, vmin=0, vmax=1, cmap="gray")
-            plt.title("Image")
-            plt.axis("off")
-            # Plot the reconstruction slice
-            slice_reconstruction = reconstruction.cpu()[0, 0, slice_idx, :, :]
-            plt.subplot(1, 2, 2)
-            plt.imshow(slice_reconstruction, vmin=0, vmax=1, cmap="gray")
-            plt.title("Reconstruction")
-            plt.axis("off")
+        if self.config["lr_scheduler"]:
+            scheduler_class = getattr(torch.optim.lr_scheduler, self.config["lr_scheduler"])  # Get the class dynamically
+            g_lr_scheduler = scheduler_class(optimizer_g, **self.config["lr_scheduler_params"])
+            d_lr_scheduler = scheduler_class(optimizer_d, **self.config["lr_scheduler_params"])
+        else:
+            g_lr_scheduler = None
+            d_lr_scheduler = None
 
-            buffer = BytesIO()
-            plt.tight_layout()
-            plt.savefig(buffer, format='png', dpi=300, bbox_inches='tight', pad_inches=0)
-            plt.close()
+        return optimizer_g, optimizer_d, g_lr_scheduler, d_lr_scheduler
 
-            buffer.seek(0)
-            gif_image = Image.open(buffer).copy()  # Fully load the image into memory
-            gif_images.append(gif_image)
-            buffer.close()
+    def save_plots(self, image, reconstruction, plot_name):
+        save_path = os.path.join(self.config['results_path'], 'plots')
+        os.makedirs(save_path, exist_ok=True)
 
-        # Create GIF from the list of images
-        create_gif_from_images(gif_images, gif_output_path)
+        is_3d = len(image.shape) == 5
 
-        save_all_losses_path = os.path.join(self.save_dict['plots'], f"loss.png")
-        save_all_losses(self.loss_dict, save_all_losses_path,  self.config['val_interval'])
+        if is_3d:
+            plot_save_path = os.path.join(save_path, f'{plot_name}.gif')
+            num_slices = image.shape[2]  # Assuming the image is [batch, channel, x, y, z]
+            gif_images = []
 
-        loss_pickle_path = os.path.join("/".join(self.save_dict['plots'].split('/')[:-1]), 'loss_dict.pkl')
-        with open(loss_pickle_path, 'wb') as file:
-            pickle.dump(self.loss_dict, file)
+            for slice_idx in range(num_slices):
+                plt.figure(figsize=(4, 2))  # Adjusting the figsize for side-by-side plots
+                # Plot the original image slice
+                slice_image = image.cpu()[0, 0, slice_idx, :, :]
+                plt.subplot(1, 2, 1)
+                plt.imshow(slice_image, cmap="gray")
+                plt.title("Image")
+                plt.axis("off")
+                # Plot the reconstruction slice
+                slice_reconstruction = reconstruction.cpu()[0, 0, slice_idx, :, :]
+                plt.subplot(1, 2, 2)
+                plt.imshow(slice_reconstruction, cmap="gray")
+                plt.title("Reconstruction")
+                plt.axis("off")
+
+                buffer = BytesIO()
+                plt.tight_layout()
+                plt.savefig(buffer, format='png', dpi=300, bbox_inches='tight', pad_inches=0)
+                plt.close()
+
+                buffer.seek(0)
+                gif_image = Image.open(buffer).copy()  # Fully load the image into memory
+                gif_images.append(gif_image)
+                buffer.close()
+
+            # Create GIF from the list of images
+            create_gif_from_images(gif_images, plot_save_path)
+
+        else:
+            slice_image = image.cpu()[0, 0, :, :]
+            slice_reconstruction = reconstruction.cpu()[0, 0, :, :]
+            plot_save_path = os.path.join(save_path, f'{plot_name}.png')
+            create_2d_image_reconstruction_plot(slice_image, slice_reconstruction, save_path=plot_save_path)
 
     def save_model(self, epoch, validation_loss, optimizer, discriminator, disc_optimizer, scheduler=None,
                    disc_scheduler=None):
-        if not os.path.exists(self.save_dict['checkpoints']):
-            os.makedirs(self.save_dict['checkpoints'], exist_ok=True)
+        save_path = os.path.join(self.config['results_path'], 'checkpoints')
+        if not os.path.exists(save_path):
+            os.makedirs(save_path, exist_ok=True)
 
-        last_checkpoint_path = os.path.join(self.save_dict['checkpoints'], 'last_model.pth')
+        last_checkpoint_path = os.path.join(save_path, 'last_model.pth')
         checkpoint = {
             'epoch': epoch + 1,
             'network_state_dict': self.autoencoder.state_dict(),
@@ -252,7 +291,7 @@ class AutoEncoder:
 
         torch.save(checkpoint, last_checkpoint_path)
 
-        best_checkpoint_path = os.path.join(self.save_dict['checkpoints'], 'best_model.pth')
+        best_checkpoint_path = os.path.join(save_path, 'best_model.pth')
         if os.path.isfile(best_checkpoint_path):
             best_checkpoint = torch.load(best_checkpoint_path)
             best_loss = best_checkpoint.get('validation_loss', float('inf'))
@@ -285,12 +324,24 @@ class AutoEncoder:
         if for_training:
             return checkpoint['epoch']
 
-    def train(self, train_loader, val_loader, discriminator, perceptual_loss, optimizer_g, optimizer_d,
-              g_lr_scheduler=None, d_lr_scheduler=None):
+    def train_main(self, train_loader, val_loader):
         scaler_g = GradScaler()
         scaler_d = GradScaler()
         total_start = time.time()
         start_epoch = 0
+        plot_save_path = os.path.join(self.config['results_path'], 'plots')
+
+        img_shape = self.config['transformations']['patch_size']
+        input_shape = (self.config['batch_size'], self.autoencoder.encoder.in_channels, *img_shape)
+
+        discriminator = PatchDiscriminator(**self.config['discriminator_params']).to(self.device)
+        perceptual_loss = PerceptualLoss(**self.config['perceptual_params']).to(self.device)
+
+        summary(self.autoencoder, input_shape, batch_dim=None, depth=3)
+        summary(discriminator, input_shape, batch_dim=None, depth=3)
+        summary(perceptual_loss, [input_shape, input_shape], batch_dim=None, depth=3)
+
+        optimizer_g, optimizer_d, g_lr_scheduler, d_lr_scheduler = self.get_optimizers_and_lr_schedules(discriminator)
 
         if self.config['load_model_path']:
             start_epoch = self.load_model(self.config['load_model_path'], optimizer=optimizer_g, scheduler=g_lr_scheduler,
@@ -299,13 +350,17 @@ class AutoEncoder:
 
         for epoch in range(start_epoch, self.config['n_epochs']):
             self.train_one_epoch(epoch, train_loader, discriminator, perceptual_loss, optimizer_g, optimizer_d, scaler_g, scaler_d)
+            image, reconstruction = self.validate_one_epoch(val_loader, return_img_recon=True)
+            save_all_losses(self.loss_dict, plot_save_path)
+            self.save_model(epoch, self.loss_dict['val_rec_loss'][-1], optimizer_g, discriminator, optimizer_d,
+                            scheduler=g_lr_scheduler, disc_scheduler=d_lr_scheduler)
 
-            if epoch % self.config['val_interval'] == 0:
-                image, reconstruction = self.validate_one_epoch(val_loader, return_img_recon=True)
-                gif_output_path = os.path.join(self.save_dict['plots'], f"epoch_{epoch}.gif")
-                self.save_plots(image, reconstruction, gif_output_path)
-                self.save_model(epoch, self.loss_dict['val_rec_loss'][-1], optimizer_g, discriminator, optimizer_d,
-                                scheduler=g_lr_scheduler, disc_scheduler=d_lr_scheduler)
+            loss_pickle_path = os.path.join("/".join(plot_save_path.split('/')[:-1]), 'loss_dict.pkl')
+            with open(loss_pickle_path, 'wb') as file:
+                pickle.dump(self.loss_dict, file)
+
+            if epoch % self.config['val_plot_interval'] == 0:
+                self.save_plots(image, reconstruction, plot_name=f"epoch_{epoch}")
 
             if g_lr_scheduler:
                 g_lr_scheduler.step()
@@ -318,61 +373,183 @@ class AutoEncoder:
         total_time = time.time() - total_start
         print(f"Total training time: {time.strftime('%H:%M:%S', time.gmtime(total_time))}")
 
+    def train(self, train_loader, val_loader):
+        # unpack .npz files to .npy
+        train_loader.dataset.unpack_dataset()
+
+        try:
+            print(f"\nStarting training autoencoder model...")
+            self.train_main(train_loader=train_loader, val_loader=val_loader)
+        except BaseException as e:
+            error_message = str(e) or type(e).__name__
+            print(f"An exception occurred: {error_message}")
+        finally:
+            # remove all .npy files
+            not_clean = True
+            while not_clean:
+                try:
+                    train_loader.dataset.pack_dataset()
+                    not_clean = False
+                except BaseException:
+                    continue
+
+
+def infer_loss_weights_and_fit_gpu(dataset_id, model_type, initial_config):
+
+    test_config = get_config_for_current_task(dataset_id=dataset_id, model_type=model_type, progress_bar=False,
+                                              continue_training=False, initial_config=initial_config)
+
+    train_loader, val_loader = get_data_loaders(test_config, dataset_id, splitting="train_val_test", model_type=model_type)
+
+    # initialize config
+    test_config['n_epochs'] = 1
+    test_config['autoencoder_warm_up_epochs'] = 0
+    test_config['grad_accumulate_step'] = 1
+    test_config['kl_weight'] = 1e-8
+    test_config['adv_weight'] = 1
+    test_config['perc_weight'] = 1
+
+    # unpack .npz files to .npy
+    train_loader.dataset.unpack_dataset()
+
+    not_done = True
+    while not_done:
+        try:
+            model = AutoEncoder(config=test_config, latent_space_type='vae')
+            model.train_main(train_loader=train_loader, val_loader=val_loader)
+
+            loss_dict = model.loss_dict
+            print(loss_dict)
+
+            # modify perceptual loss weight
+            perc_loss_weight_not_defined = True
+            while perc_loss_weight_not_defined:
+                rec_perc_difference = loss_dict['rec_loss'] / (loss_dict['perc_loss'] * test_config['perc_weight'])
+                if rec_perc_difference >= 0.5:
+                    test_config['perc_weight'] = test_config['perc_weight'] * 2
+                elif rec_perc_difference <= 0.25:
+                    test_config['perc_weight'] = test_config['perc_weight'] * 0.5
+                else:
+                    print(f"Perceptual loss weight set to: {test_config['perc_weight']}")
+                    perc_loss_weight_not_defined = False
+
+            # modify adversarial loss weight
+            perc_loss_weight_not_defined = True
+            while perc_loss_weight_not_defined:
+                rec_perc_difference = loss_dict['rec_loss'] / (loss_dict['gen_loss'] * test_config['adv_weight'])
+                if rec_perc_difference >= 0.5:
+                    test_config['adv_weight'] = test_config['adv_weight'] * 2
+                elif rec_perc_difference <= 0.25:
+                    test_config['adv_weight'] = test_config['adv_weight'] * 0.5
+                else:
+                    print(f"Adversarial loss weight set to: {test_config['adv_weight']}")
+                    perc_loss_weight_not_defined = False
+
+            train_loader.dataset.pack_dataset()
+            not_done = False
+        except RuntimeError as e:
+            if "out of memory" in str(e):
+                test_config['batch_size'] = test_config['batch_size'] // 2
+                print(f"CUDA out of memory error caught. Reducing batch_size to: {test_config['batch_size']}")
+                # Optionally clear cache to free memory
+                torch.cuda.empty_cache()
+            else:
+                # If it's some other error, re-raise it
+                raise e
+
+
+    # delete splits_file
+
+    # delete results_folder
+
+    # remove unnecessary key-values
+    keys_to_remove = ['progress_bar', 'output_mode', 'results_path', 'load_model_path']
+    test_config = {key: value for key, value in test_config.items() if key not in keys_to_remove}
+
+    return test_config
+
+
+def get_config_for_current_task(dataset_id, model_type, progress_bar, continue_training, initial_config=None):
+    preprocessed_dataset_path = glob.glob(os.getenv('nnUNet_preprocessed') + f'/Dataset{dataset_id}*/')[0]
+    if not initial_config:
+        config_path = os.path.join(preprocessed_dataset_path, 'medimgen_config.yaml')
+        if os.path.exists(config_path):
+            config = load_config(config_path)
+        else:
+            raise FileNotFoundError(
+                f"There is no medimgen configuration file for Dataset {dataset_id}. First run: medimgen_plan")
+    else:
+        config = initial_config
+    config = config['2D'] if model_type == '2d' else config['3D']
+    config['progress_bar'] = progress_bar
+    config['output_mode'] = 'verbose'
+    dataset_folder_name = preprocessed_dataset_path.split('/')[-2]
+    results_path = os.path.join(os.getenv('medimgen_results'), dataset_folder_name, model_type, 'autoencoder')
+    if os.path.exists(results_path) and not continue_training:
+        raise FileExistsError(f"Results path {results_path} already exists.")
+    config['results_path'] = results_path
+    last_model_path = os.path.join(results_path, 'checkpoints', 'last_model.pth')
+    config['load_model_path'] = last_model_path if continue_training else None
+    return config
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description="Train an Autoencoder Model to reconstruct images.")
+    parser.add_argument("dataset_id", type=str, help="Dataset ID")
+    parser.add_argument("splitting", choices=["train-val-test", "5-fold"],
+                        help="Choose either 'train-val-test' for a standard split or '5-fold' for cross-validation.")
+    parser.add_argument("model_type", choices=["2d", "3d"],
+                        help="Specify the model type: '2d' or '3d'.")
+    parser.add_argument("-f", "--fold", type=int, choices=[0, 1, 2, 3, 4, 5], required=False, default=None,
+                        help="Specify the fold index (0-5) when using 5-fold cross-validation.")
+    parser.add_argument("-l", "--latent_space_type", type=str, default="vae", choices=["vae", "vq"],
+                        help="Type of latent space to use: 'vae' or 'vq'. Default is 'vae'.")
+    parser.add_argument("-p", "--progress_bar", action="store_true", help="Enable progress bar (default: False)")
+    parser.add_argument("-c", "--continue_training", action="store_true",
+                        help="Continue training from the last checkpoint (default: False)")
+    args = parser.parse_args()
+
+    # Ensure --fold is provided only when --splitting is "5-fold"
+    if args.splitting == "5-fold" and args.fold is None:
+        parser.error("--fold is required when --splitting is set to '5-fold'")
+
+    # Ensure --fold is None when --splitting is "train-val-test"
+    if args.splitting == "train-val-test" and args.fold is not None:
+        parser.error("--fold should not be provided when --splitting is set to 'train-val-test'")
+
+    return args
+
 
 def main():
-    args_mode = "train_autoencoder"
-    args = parse_arguments(description="Train an Autoencoder Model to reconstruct the input", args_mode=args_mode)
-    config = load_config(args.config)
-    config = update_config_with_args(config, args, args_mode)
-    config = filter_config_by_mode(config, args_mode)
-    save_dict, save_path = create_save_path_dict(config)
-    print_configuration(config, save_path, "Training", model="autoencoder")
 
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-        print(f"Using device: {torch.cuda.get_device_name(0)}")
-    else:
-        device = torch.device("cpu")
-        print("Using device: CPU")
+    args = parse_arguments()
+    dataset_id = args.dataset_id
+    splitting = args.splitting
+    model_type = args.model_type
+    fold = args.fold
+    latent_space_type = args.latent_space_type
+    progress_bar = args.progress_bar
+    continue_training = args.continue_training
 
-    set_determinism(42)
+    config = get_config_for_current_task(dataset_id, model_type, progress_bar, continue_training)
 
-    train_loader, val_loader = get_data_loaders(config)
+    # TODO: need to add these to config
+    # config['batch_size'] = 4
+    # config['autoencoder_warm_up_epochs'] = 5
+    # config['grad_accumulate_step'] = 1
+    config['kl_weight'] = 1e-8
+    config['adv_weight'] = 0.25
+    config['perc_weight'] = 1
+    # config['ae_learning_rate'] = 1e-2
+    # config['d_learning_rate'] = 1e-2
+    # config['grad_clip_max_norm'] = 1
 
-    img_shape = config['transformations']['resize_shape'] if config['transformations']['resize_shape'] \
-        else config['transformations']['patch_size']
+    # colon: adv_weight = 1, perc_weight = 4
+    # brain:
 
-    if config['latent_space_type'] == 'vq':
-        autoencoder = VQVAE(**config['vqvae_params']).to(device)
-        input_shape = (1, config['vqvae_params']['in_channels'], *img_shape)
-    elif config['latent_space_type'] == 'vae':
-        autoencoder = AutoencoderKL(**config['vae_params']).to(device)
-        input_shape = (1, config['vae_params']['in_channels'], *img_shape)
-    else:
-        raise ValueError("Invalid latent_space_type. Choose 'vq' or 'vae'.")
+    # config['transformations']['patch_size'] = (64, 64) # TODO: remove this
+    train_loader, val_loader = get_data_loaders(config, dataset_id, splitting, model_type, fold)
 
-    summary(autoencoder, input_shape, batch_dim=None, depth=3)
+    model = AutoEncoder(config=config, latent_space_type=latent_space_type)
+    model.train(train_loader=train_loader, val_loader=val_loader)
 
-    discriminator = PatchDiscriminator(**config['discriminator_params']).to(device)
-    summary(discriminator, input_shape, batch_dim=None, depth=3)
-
-    perceptual_loss = PerceptualLoss(**config['perceptual_params']).to(device)
-    summary(perceptual_loss, [input_shape, input_shape], batch_dim=None, depth=3)
-
-    optimizer_g = torch.optim.Adam(params=autoencoder.parameters(), lr=config['g_learning_rate'])
-    optimizer_d = torch.optim.Adam(params=discriminator.parameters(), lr=config['d_learning_rate'])
-
-    if config["lr_scheduler"]:
-        scheduler_class = getattr(torch.optim.lr_scheduler, config["lr_scheduler"])  # Get the class dynamically
-        g_lr_scheduler = scheduler_class(optimizer_g, **config["lr_scheduler_params"])
-        d_lr_scheduler = scheduler_class(optimizer_d, **config["lr_scheduler_params"])
-    else:
-        g_lr_scheduler = None
-        d_lr_scheduler = None
-
-    model = AutoEncoder(config=config, autoencoder=autoencoder, device=device, save_dict=save_dict)
-
-    print(f"\nStarting training autoencoder model...")
-    model.train(train_loader=train_loader, val_loader=val_loader, discriminator=discriminator,
-                perceptual_loss=perceptual_loss, optimizer_g=optimizer_g, optimizer_d=optimizer_d,
-                g_lr_scheduler=g_lr_scheduler, d_lr_scheduler=d_lr_scheduler)

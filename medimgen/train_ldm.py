@@ -1,9 +1,15 @@
 import warnings
 warnings.filterwarnings("ignore")
 
+import matplotlib
+matplotlib.use('Agg')
+
 import os
 import sys
 import time
+import glob
+import pickle
+import argparse
 import matplotlib.pyplot as plt
 import torch
 import torch.nn.functional as F
@@ -15,29 +21,59 @@ from PIL import Image
 from torchinfo import summary
 from monai.utils import set_determinism
 from generative.inferers import DiffusionInferer, LatentDiffusionInferer
-from generative.networks.nets import DiffusionModelUNet
+# from generative.networks.nets import DiffusionModelUNet
 from generative.networks.schedulers import DDPMScheduler
 from generative.networks.nets import VQVAE
 
 from medimgen.data_processing import get_data_loaders
-from medimgen.configuration import (load_config, parse_arguments, update_config_with_args, filter_config_by_mode,
-                                    print_configuration, create_save_path_dict)
+from medimgen.configuration import load_config
 from medimgen.autoencoderkl_with_strides import AutoencoderKL
-from medimgen.utils import create_gif_from_images, save_main_losses
+from medimgen.diffusion_model_unet_with_strides import DiffusionModelUNet
+from medimgen.utils import create_gif_from_images, save_all_losses, create_2d_image_plot
 
 
 class LDM:
-    def __init__(self, config, ddpm, autoencoder, inferer, scheduler, device, save_dict):
+    def __init__(self, config, latent_space_type='vae'):
         self.config = config
-        self.ddpm = ddpm
-        self.autoencoder = autoencoder
-        self.inferer = inferer
-        self.scheduler = scheduler
-        self.device = device
-        self.save_dict = save_dict
+        self.latent_space_type = latent_space_type
 
-        if self.config['latent_space_type'] == 'vq':
+        if torch.cuda.is_available():
+            self.device = torch.device("cuda")
+            print(f"Using device: {torch.cuda.get_device_name(0)}")
+        else:
+            self.device = torch.device("cpu")
+            print("Using device: CPU")
+
+        print(f"Loading autoencoder checkpoint from {self.config['load_autoencoder_path']}...")
+        if latent_space_type == 'vq':
+            self.autoencoder = VQVAE(**self.config['vqvae_params']).to(self.device)
+            checkpoint = torch.load(self.config['load_autoencoder_path'])
+            self.autoencoder.load_state_dict(checkpoint['network_state_dict'])
+            self.autoencoder.eval()
+        elif self.latent_space_type == 'vae':
+            self.autoencoder = AutoencoderKL(**self.config['vae_params']).to(self.device)
+            checkpoint = torch.load(self.config['load_autoencoder_path'])
+            self.autoencoder.load_state_dict(checkpoint['network_state_dict'])
+            self.autoencoder.eval()
+        else:
+            raise ValueError("Invalid latent_space_type. Choose 'vq' or 'vae'.")
+
+        if latent_space_type == 'vq':
             self.codebook_min, self.codebook_max = self.get_codebook_min_max()
+
+        self.ddpm = DiffusionModelUNet(**config['ddpm_params']).to(self.device)
+
+        # https://towardsdatascience.com/generating-medical-images-with-monai-e03310aa35e6
+        self.scheduler = DDPMScheduler(**self.config['time_scheduler_params'])
+
+        if self.config['load_model_path']:
+            # update loss_dict from previous training, as we are continuing training
+            loss_pickle_path = os.path.join("/".join(self.config['load_model_path'].split('/')[:-2]), 'loss_dict.pkl')
+            if os.path.exists(loss_pickle_path):
+                with open(loss_pickle_path, 'rb') as file:
+                    self.loss_dict = pickle.load(file)
+        else:
+            self.loss_dict = {'rec_loss': [], 'val_rec_loss': []}
 
     def get_codebook_min_max(self):
         codebook = self.autoencoder.quantizer.quantizer.embedding.weight.data  # [num_codes, embedding_dim]
@@ -52,7 +88,41 @@ class LDM:
     def codebook_min_max_renormalize(self, tensor):
         return ((tensor + 1) / 2) * (self.codebook_max - self.codebook_min) + self.codebook_min
 
-    def train_one_epoch(self, epoch, train_loader, optimizer, scaler):
+    def get_inferer_and_latent_shape(self, train_loader):
+        check_batch = next(iter(train_loader))['image']
+
+        if self.latent_space_type == 'vq':
+            inferer = DiffusionInferer(self.scheduler)
+            with torch.no_grad():
+                with autocast(enabled=True):
+                    z = self.autoencoder.encode(check_batch.to(self.device))
+        elif self.latent_space_type == 'vae':
+            with torch.no_grad():
+                with autocast(enabled=True):
+                    z = self.autoencoder.encode_stage_2_inputs(check_batch.to(self.device))
+            print(f"Scaling factor set to {1 / torch.std(z)}")
+            scale_factor = 1 / torch.std(z)
+            inferer = LatentDiffusionInferer(self.scheduler, scale_factor=scale_factor)
+        else:
+            raise ValueError("Invalid latent_space_type. Choose 'vq' or 'vae'.")
+
+        z_shape = tuple(z.shape)
+        print(f"Latent shape: {z_shape}")
+        return inferer, z_shape
+
+    def get_optimizer_and_lr_schedule(self):
+        # optimizer = torch.optim.Adam(params=self.ddpm.parameters(), lr=self.config['ddpm_learning_rate'])
+        optimizer = torch.optim.SGD(self.ddpm.parameters(), self.config['ddpm_learning_rate'],
+                                      weight_decay=self.config['weight_decay'], momentum=0.99, nesterov=True)
+        if self.config["lr_scheduler"]:
+            scheduler_class = getattr(torch.optim.lr_scheduler, self.config["lr_scheduler"])  # Get the class dynamically
+            lr_scheduler = scheduler_class(optimizer, **self.config["lr_scheduler_params"])
+        else:
+            lr_scheduler = None
+
+        return optimizer, lr_scheduler
+
+    def train_one_epoch(self, epoch, train_loader, optimizer, scaler, inferer):
         self.ddpm.train()
         self.autoencoder.eval()
         epoch_loss = 0
@@ -69,15 +139,15 @@ class LDM:
                                           device=images.device).long()
 
                 with autocast(enabled=True):
-                    if self.config['latent_space_type'] == 'vq':
+                    if self.latent_space_type == 'vq':
                         with torch.no_grad():
                             latents = self.autoencoder.encode(images)
                             latents_scaled = self.codebook_min_max_normalize(latents)
 
-                    elif self.config['latent_space_type'] == 'vae':
+                    elif self.latent_space_type == 'vae':
                         with torch.no_grad():
                             latents = self.autoencoder.encode_stage_2_inputs(images)
-                            latents_scaled = latents * self.inferer.scale_factor
+                            latents_scaled = latents * inferer.scale_factor
 
                     noise = torch.randn_like(latents_scaled).to(self.device)
                     noisy_latents = self.scheduler.add_noise(original_samples=latents_scaled, noise=noise, timesteps=timesteps)
@@ -111,9 +181,9 @@ class LDM:
             print(f"Epoch {epoch} - Time: {time.strftime('%H:%M:%S', time.gmtime(end))} - "
                   f"Train Loss: {epoch_loss / len(train_loader):.4f}")
 
-        return epoch_loss / len(train_loader)
+        self.loss_dict['rec_loss'].append(epoch_loss / len(train_loader))
 
-    def validate_epoch(self, val_loader):
+    def validate_epoch(self, val_loader, inferer):
         self.ddpm.eval()
         self.autoencoder.eval()
         val_epoch_loss = 0
@@ -128,15 +198,15 @@ class LDM:
 
                 with torch.no_grad():
                     with autocast(enabled=True):
-                        if self.config['latent_space_type'] == 'vq':
+                        if self.latent_space_type == 'vq':
                             with torch.no_grad():
                                 latents = self.autoencoder.encode(images)
                                 latents_scaled = self.codebook_min_max_normalize(latents)
 
-                        elif self.config['latent_space_type'] == 'vae':
+                        elif self.latent_space_type == 'vae':
                             with torch.no_grad():
                                 latents = self.autoencoder.encode_stage_2_inputs(images)
-                                latents_scaled = latents * self.inferer.scale_factor
+                                latents_scaled = latents * inferer.scale_factor
 
                         noise = torch.randn_like(latents_scaled).to(self.device)
                         noisy_latents = self.scheduler.add_noise(original_samples=latents_scaled, noise=noise,
@@ -159,9 +229,9 @@ class LDM:
             print(f"Time: {time.strftime('%H:%M:%S', time.gmtime(end))} - "
                   f"Validation Loss: {val_epoch_loss / len(val_loader):.4f}")
 
-        return val_epoch_loss / len(val_loader)
+        self.loss_dict['val_rec_loss'].append(val_epoch_loss / len(val_loader))
 
-    def sample_image(self, z_shape, verbose=False, seed=None):
+    def sample_image(self, z_shape, inferer, verbose=False, seed=None):
         self.ddpm.eval()
         self.autoencoder.eval()
         if seed:
@@ -171,52 +241,57 @@ class LDM:
         self.scheduler.set_timesteps(num_inference_steps=self.config['time_scheduler_params']['num_train_timesteps'])
         with torch.no_grad():
             with autocast(enabled=True):
-                if self.config['latent_space_type'] == 'vq':
-                    generated_latents = self.inferer.sample(input_noise=input_noise, diffusion_model=self.ddpm,
+                if self.latent_space_type == 'vq':
+                    generated_latents = inferer.sample(input_noise=input_noise, diffusion_model=self.ddpm,
                                                             scheduler=self.scheduler, verbose=verbose)
                     unscaled_latents = self.codebook_min_max_renormalize(generated_latents)
                     quantized_latents, _ = self.autoencoder.quantize(unscaled_latents)
                     image = self.autoencoder.decode(quantized_latents)
-                elif self.config['latent_space_type'] == 'vae':
-                    image = self.inferer.sample(input_noise=input_noise, diffusion_model=self.ddpm,
-                                                autoencoder_model=self.autoencoder, scheduler=self.scheduler,
-                                                verbose=verbose)
+                elif self.latent_space_type == 'vae':
+                    image = inferer.sample(input_noise=input_noise, diffusion_model=self.ddpm,
+                                           autoencoder_model=self.autoencoder, scheduler=self.scheduler,
+                                           verbose=verbose)
                     # image = self.autoencoder.decode_stage_2_outputs(generated_latents)
         return image
 
-    def save_plots(self, sampled_image, gif_output_path, epoch_loss_list=None, val_epoch_loss_list=None):
-        if not os.path.exists(self.save_dict['plots']):
-            os.makedirs(self.save_dict['plots'], exist_ok=True)
+    def save_plots(self, sampled_image, plot_name):
+        save_path = os.path.join(self.config['results_path'], 'plots')
+        os.makedirs(save_path, exist_ok=True)
 
-        num_slices = sampled_image.shape[2]
-        gif_images = []
+        is_3d = len(sampled_image.shape) == 5
 
-        for slice_idx in range(num_slices):
-            plt.figure(figsize=(2, 2))
-            slice_image = sampled_image.cpu()[0, 0, slice_idx, :, :]
-            plt.imshow(slice_image, vmin=0, vmax=1, cmap="gray")
-            plt.axis("off")
+        if is_3d:
+            plot_save_path = os.path.join(save_path, f'{plot_name}.gif')
+            num_slices = sampled_image.shape[2]
+            gif_images = []
 
-            buffer = BytesIO()
-            plt.savefig(buffer, format='png', dpi=300, bbox_inches='tight', pad_inches=0)
-            plt.close()
+            for slice_idx in range(num_slices):
+                plt.figure(figsize=(2, 2))
+                slice_image = sampled_image.cpu()[0, 0, slice_idx, :, :]
+                plt.imshow(slice_image, vmin=0, vmax=1, cmap="gray")
+                plt.axis("off")
 
-            buffer.seek(0)
-            gif_image = Image.open(buffer).copy()
-            gif_images.append(gif_image)
-            buffer.close()
+                buffer = BytesIO()
+                plt.savefig(buffer, format='png', dpi=300, bbox_inches='tight', pad_inches=0)
+                plt.close()
 
-        create_gif_from_images(gif_images, gif_output_path)
+                buffer.seek(0)
+                gif_image = Image.open(buffer).copy()
+                gif_images.append(gif_image)
+                buffer.close()
 
-        if epoch_loss_list is not None and val_epoch_loss_list is not None:
-            save_main_losses_path = os.path.join(self.save_dict['plots'], "main_loss.png")
-            save_main_losses(epoch_loss_list, val_epoch_loss_list, self.config['val_interval'], save_main_losses_path)
+            create_gif_from_images(gif_images, plot_save_path)
+        else:
+            slice_image = sampled_image.cpu()[0, 0, :, :]
+            plot_save_path = os.path.join(save_path, f'{plot_name}.png')
+            create_2d_image_plot(slice_image, save_path=plot_save_path)
 
     def save_model(self, epoch, validation_loss, optimizer, scheduler=None):
-        if not os.path.exists(self.save_dict['checkpoints']):
-            os.makedirs(self.save_dict['checkpoints'], exist_ok=True)
+        save_path = os.path.join(self.config['results_path'], 'checkpoints')
+        if not os.path.exists(save_path):
+            os.makedirs(save_path, exist_ok=True)
 
-        last_checkpoint_path = os.path.join(self.save_dict['checkpoints'], 'last_model.pth')
+        last_checkpoint_path = os.path.join(save_path, 'last_model.pth')
         checkpoint = {
             'epoch': epoch + 1,
             'network_state_dict': self.ddpm.state_dict(),
@@ -229,7 +304,7 @@ class LDM:
 
         torch.save(checkpoint, last_checkpoint_path)
 
-        best_checkpoint_path = os.path.join(self.save_dict['checkpoints'], 'best_model.pth')
+        best_checkpoint_path = os.path.join(save_path, 'best_model.pth')
         if os.path.isfile(best_checkpoint_path):
             best_checkpoint = torch.load(best_checkpoint_path)
             best_loss = best_checkpoint.get('validation_loss', float('inf'))
@@ -252,30 +327,41 @@ class LDM:
         if for_training:
             return checkpoint['epoch']
 
-    def train(self, train_loader, val_loader, z_shape, optimizer, lr_scheduler=None):
+    def train_main(self, train_loader, val_loader):
         scaler = GradScaler()
         total_start = time.time()
         start_epoch = 0
-        epoch_loss_list = []
-        val_epoch_loss_list = []
         sample_seed = 42
+        plot_save_path = os.path.join(self.config['results_path'], 'plots')
+
+        inferer, z_shape = self.get_inferer_and_latent_shape(train_loader)
+
+        img_shape = self.config['transformations']['patch_size']
+        ae_input_shape = (self.config['batch_size'], self.autoencoder.encoder.in_channels, *img_shape)
+        ddpm_input_shape = [(self.config['batch_size'], *z_shape[1:]), (self.config['batch_size'],)]
+        summary(self.autoencoder, ae_input_shape, batch_dim=None, depth=3)
+        summary(self.ddpm, ddpm_input_shape, batch_dim=None, depth=3)
+
+        optimizer, lr_scheduler = self.get_optimizer_and_lr_schedule()
 
         if self.config['load_model_path']:
-            start_epoch, = self.load_model(self.config['load_model_path'], optimizer=optimizer, lr_scheduler=lr_scheduler,
-                                           for_training=True)
+            start_epoch = self.load_model(self.config['load_model_path'], optimizer=optimizer, lr_scheduler=lr_scheduler,
+                                          for_training=True)
 
         for epoch in range(start_epoch, self.config['n_epochs']):
-            train_loss = self.train_one_epoch(epoch, train_loader, optimizer, scaler)
-            epoch_loss_list.append(train_loss)
+            self.train_one_epoch(epoch, train_loader, optimizer, scaler, inferer)
+            self.validate_epoch(val_loader, inferer)
+            save_all_losses(self.loss_dict, plot_save_path)
+            self.save_model(epoch, self.loss_dict['val_rec_loss'][-1], optimizer, lr_scheduler)
 
-            if epoch % self.config['val_interval'] == 0:
-                val_loss = self.validate_epoch(val_loader)
-                val_epoch_loss_list.append(val_loss)
+            loss_pickle_path = os.path.join("/".join(plot_save_path.split('/')[:-1]), 'loss_dict.pkl')
+            with open(loss_pickle_path, 'wb') as file:
+                pickle.dump(self.loss_dict, file)
+
+            if epoch % self.config['val_plot_interval'] == 0:
                 sample_verbose = not (self.config['output_mode'] == 'log' or not self.config['progress_bar'])
-                sampled_image = self.sample_image(z_shape, sample_verbose, seed=sample_seed)
-                gif_output_path = os.path.join(self.save_dict['plots'], f"epoch_{epoch}.gif")
-                self.save_plots(sampled_image, gif_output_path, epoch_loss_list, val_epoch_loss_list)
-                self.save_model(epoch, val_loss, optimizer, lr_scheduler)
+                sampled_image = self.sample_image(z_shape, inferer, sample_verbose, seed=sample_seed)
+                self.save_plots(sampled_image, plot_name=f"epoch_{epoch}.gif")
 
             if lr_scheduler:
                 lr_scheduler.step()
@@ -284,79 +370,106 @@ class LDM:
         total_time = time.time() - total_start
         print(f"Training completed in {total_time:.2f} seconds.")
 
+    def train(self, train_loader, val_loader):
+        # unpack .npz files to .npy
+        train_loader.dataset.unpack_dataset()
+
+        try:
+            print(f"\nStarting training ldm model...")
+            self.train_main(train_loader=train_loader, val_loader=val_loader)
+        except BaseException as e:
+            error_message = str(e) or type(e).__name__
+            print(f"An exception occurred: {error_message}")
+        finally:
+            # remove all .npy files
+            not_clean = True
+            while not_clean:
+                try:
+                    train_loader.dataset.pack_dataset()
+                    not_clean = False
+                except BaseException:
+                    continue
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description="Train an Autoencoder Model to reconstruct images.")
+    parser.add_argument("dataset_id", type=str, help="Dataset ID")
+    parser.add_argument("splitting", choices=["train-val-test", "5-fold"],
+                        help="Choose either 'train-val-test' for a standard split or '5-fold' for cross-validation.")
+    parser.add_argument("model_type", choices=["2d", "3d"],
+                        help="Specify the model type: '2d' or '3d'.")
+    parser.add_argument("-f", "--fold", type=int, choices=[0, 1, 2, 3, 4, 5], required=False, default=None,
+                        help="Specify the fold index (0-5) when using 5-fold cross-validation.")
+    parser.add_argument("-l", "--latent_space_type", type=str, default="vae", choices=["vae", "vq"],
+                        help="Type of latent space to use: 'vae' or 'vq'. Default is 'vae'.")
+    parser.add_argument("-p", "--progress_bar", action="store_true", help="Enable progress bar (default: False)")
+    parser.add_argument("-c", "--continue_training", action="store_true",
+                        help="Continue training from the last checkpoint (default: False)")
+    args = parser.parse_args()
+
+    # Ensure --fold is provided only when --splitting is "5-fold"
+    if args.splitting == "5-fold" and args.fold is None:
+        parser.error("--fold is required when --splitting is set to '5-fold'")
+
+    # Ensure --fold is None when --splitting is "train-val-test"
+    if args.splitting == "train-val-test" and args.fold is not None:
+        parser.error("--fold should not be provided when --splitting is set to 'train-val-test'")
+
+    return args
+
+
+def get_config_for_current_task(dataset_id, model_type, progress_bar, continue_training, initial_config=None):
+    preprocessed_dataset_path = glob.glob(os.getenv('nnUNet_preprocessed') + f'/Dataset{dataset_id}*/')[0]
+    if not initial_config:
+        config_path = os.path.join(preprocessed_dataset_path, 'medimgen_config.yaml')
+        if os.path.exists(config_path):
+            config = load_config(config_path)
+        else:
+            raise FileNotFoundError(
+                f"There is no medimgen configuration file for Dataset {dataset_id}. First run: medimgen_plan")
+    else:
+        config = initial_config
+    config = config['2D'] if model_type == '2d' else config['3D']
+    config['progress_bar'] = progress_bar
+    config['output_mode'] = 'verbose'
+    dataset_folder_name = preprocessed_dataset_path.split('/')[-2]
+
+    main_results_path = os.path.join(os.getenv('medimgen_results'), dataset_folder_name, model_type)
+    trained_ae_path = os.path.join(main_results_path, 'autoencoder', 'checkpoints', 'last_model.pth')
+    if not os.path.isfile(trained_ae_path):
+        raise FileNotFoundError(f"No pretrained autoencoder found. You should first train an autoencoder in order to "
+                                f"train a latent diffusion model")
+    config['load_autoencoder_path'] = trained_ae_path
+
+    results_path = os.path.join(main_results_path, 'ldm')
+    if os.path.exists(results_path) and not continue_training:
+        raise FileExistsError(f"Results path {results_path} already exists.")
+    config['results_path'] = results_path
+    last_model_path = os.path.join(results_path, 'checkpoints', 'last_model.pth')
+    config['load_model_path'] = last_model_path if continue_training else None
+    return config
+
 
 def main():
-    args_mode = "train_ldm"
-    args = parse_arguments(description="Train a Latent Diffusion Model", args_mode=args_mode)
-    config = load_config(args.config)
-    config = update_config_with_args(config, args, args_mode)
-    config = filter_config_by_mode(config, args_mode)
-    save_dict, save_path = create_save_path_dict(config)
-    print_configuration(config, save_path, "Training", model="ldm")
 
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-        print(f"Using device: {torch.cuda.get_device_name(0)}")
-    else:
-        device = torch.device("cpu")
-        print("Using device: CPU")
+    args = parse_arguments()
+    dataset_id = args.dataset_id
+    splitting = args.splitting
+    model_type = args.model_type
+    fold = args.fold
+    latent_space_type = args.latent_space_type
+    progress_bar = args.progress_bar
+    continue_training = args.continue_training
 
-    set_determinism(42)
+    config = get_config_for_current_task(dataset_id, model_type, progress_bar, continue_training)
 
-    train_loader, val_loader = get_data_loaders(config)
+    # TODO: need to add these to config
+    # config['batch_size'] = 4
+    # config['grad_accumulate_step'] = 1
+    # config['ddpm_learning_rate'] = 1e-2
+    # config['grad_clip_max_norm'] = 1
 
-    check_batch = next(iter(train_loader))['image']
+    train_loader, val_loader = get_data_loaders(config, dataset_id, splitting, model_type, fold)
 
-    img_shape = config['transformations']['resize_shape'] if config['transformations']['resize_shape'] \
-        else config['transformations']['patch_size']
-
-    # https://towardsdatascience.com/generating-medical-images-with-monai-e03310aa35e6
-    scheduler = DDPMScheduler(**config['time_scheduler_params'])
-
-    print(f"Loading autoencoder checkpoint from {config['load_autoencoder_path']}...")
-    if config['latent_space_type'] == 'vq':
-        autoencoder = VQVAE(**config['vqvae_params']).to(device)
-        checkpoint = torch.load(config['load_autoencoder_path'])
-        autoencoder.load_state_dict(checkpoint['network_state_dict'])
-        autoencoder.eval()
-        ae_input_shape = (1, config['vqvae_params']['in_channels'], *img_shape)
-        inferer = DiffusionInferer(scheduler)
-        with torch.no_grad():
-            with autocast(enabled=True):
-                z = autoencoder.encode(check_batch.to(device))
-    elif config['latent_space_type'] == 'vae':
-        autoencoder = AutoencoderKL(**config['vae_params']).to(device)
-        checkpoint = torch.load(config['load_autoencoder_path'])
-        autoencoder.load_state_dict(checkpoint['network_state_dict'])
-        autoencoder.eval()
-        ae_input_shape = (1, config['vae_params']['in_channels'], *img_shape)
-        with torch.no_grad():
-            with autocast(enabled=True):
-                z = autoencoder.encode_stage_2_inputs(check_batch.to(device))
-        print(f"Scaling factor set to {1 / torch.std(z)}")
-        scale_factor = 1 / torch.std(z)
-        inferer = LatentDiffusionInferer(scheduler, scale_factor=scale_factor)
-    else:
-        raise ValueError("Invalid latent_space_type. Choose 'vq' or 'vae'.")
-
-    summary(autoencoder, ae_input_shape, batch_dim=None, depth=3)
-
-    z_shape = tuple(z.shape)
-    print(f"Latent shape: {z_shape}")
-
-    ddpm_input_shape = [(1, *z_shape[1:]), (1,)]
-    ddpm = DiffusionModelUNet(**config['ddpm_params']).to(device)
-    summary(ddpm, ddpm_input_shape, batch_dim=None, depth=3)
-
-    optimizer = torch.optim.Adam(params=ddpm.parameters(), lr=config['ddpm_learning_rate'])
-
-    if config["lr_scheduler"]:
-        scheduler_class = getattr(torch.optim.lr_scheduler, config["lr_scheduler"])  # Get the class dynamically
-        lr_scheduler = scheduler_class(optimizer, **config["lr_scheduler_params"])
-    else:
-        lr_scheduler = None
-
-    model = LDM(config=config, ddpm=ddpm, autoencoder=autoencoder, inferer=inferer, scheduler=scheduler, device=device, save_dict=save_dict)
-
-    print(f"\nStarting training ldm model...")
-    model.train(train_loader=train_loader, val_loader=val_loader, z_shape=z_shape, optimizer=optimizer, lr_scheduler=lr_scheduler)
+    model = LDM(config=config, latent_space_type=latent_space_type)
+    model.train(train_loader=train_loader, val_loader=val_loader)

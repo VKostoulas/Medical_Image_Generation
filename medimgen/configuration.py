@@ -1,23 +1,32 @@
+import json
+import os
+import ast
+import glob
+import sys
+import yaml
 import argparse
 import logging
 import matplotlib
-import os
-import sys
-import yaml
+import numpy as np
 
 from datetime import datetime
 
 
-def load_config(config_name):
-    """Load default configuration from a YAML file."""
-    if config_name:
-        final_config_name = config_name
-    else:
-        final_config_name = 'config'
-    conf_path = os.path.join(os.getcwd(), 'medimgen', 'configs', final_config_name + '.yaml')
-    with open(conf_path, "r") as file:
+# def load_config(config_name):
+#     """Load default configuration from a YAML file."""
+#     if config_name:
+#         final_config_name = config_name
+#     else:
+#         final_config_name = 'config'
+#     conf_path = os.path.join(os.getcwd(), 'medimgen', 'configs', final_config_name + '.yaml')
+#     with open(conf_path, "r") as file:
+#         config_file = yaml.safe_load(file)
+#         config_file['config'] = final_config_name
+#         return config_file
+
+def load_config(config_path):
+    with open(config_path, "r") as file:
         config_file = yaml.safe_load(file)
-        config_file['config'] = final_config_name
         return config_file
 
 
@@ -493,3 +502,219 @@ class LoggerWriter:
         pass
 
 
+def validate_channels(value):
+    try:
+        channels = ast.literal_eval(value)
+        if isinstance(channels, list) and all(isinstance(x, int) for x in channels):
+            return channels
+    except (ValueError, SyntaxError):
+        pass
+    raise argparse.ArgumentTypeError("Channels must be a list of integers.")
+
+
+def create_autoencoder_dict(nnunet_config_dict, input_channels, spatial_dims):
+
+    features_per_stage = nnunet_config_dict['architecture']['arch_kwargs']['features_per_stage']
+    kernel_sizes = nnunet_config_dict['architecture']['arch_kwargs']['kernel_sizes']
+    strides = nnunet_config_dict['architecture']['arch_kwargs']['strides']
+
+    vae_dict = {'spatial_dims': spatial_dims,
+                'in_channels': len(input_channels),
+                'out_channels': len(input_channels),
+                'latent_channels': 3,
+                'num_res_blocks': 2,
+                'with_encoder_nonlocal_attn': False,
+                'with_decoder_nonlocal_attn': False,
+                'use_flash_attention': False,
+                'use_checkpointing': True,
+                'use_convtranspose': False
+               }
+
+    if np.max(nnunet_config_dict['patch_size']) >= 320:
+        vae_n_layers = 3
+    elif 160 <= np.max(nnunet_config_dict['patch_size']) < 320:
+        vae_n_layers = 2
+    else:
+        vae_n_layers = 1
+
+    vae_dict['num_channels'] = features_per_stage[:vae_n_layers+1]
+    vae_dict['attention_levels'] = [False] * (vae_n_layers+1)
+    vae_dict['norm_num_groups'] = vae_dict['num_channels'][0]
+
+    downsample_parameters = [[item1, item2, 1] for item1, item2 in zip(strides[1:vae_n_layers+1], kernel_sizes[1:vae_n_layers+1])]
+    vae_dict['downsample_parameters'] = downsample_parameters
+    vae_dict['upsample_parameters'] = list(reversed(downsample_parameters))
+
+    return vae_dict
+
+
+def create_ddpm_dict(nnunet_config_dict, spatial_dims):
+
+    features_per_stage = nnunet_config_dict['architecture']['arch_kwargs']['features_per_stage']
+    kernel_sizes = nnunet_config_dict['architecture']['arch_kwargs']['kernel_sizes']
+    strides = nnunet_config_dict['architecture']['arch_kwargs']['strides']
+
+    ddpm_dict = {'spatial_dims': spatial_dims,
+                 'in_channels': 3,
+                 'out_channels': 3,
+                 'num_res_blocks': 2,
+                 'use_flash_attention': False,
+                }
+
+    if np.max(nnunet_config_dict['patch_size']) >= 320:
+        vae_n_layers = 3
+    elif 160 <= np.max(nnunet_config_dict['patch_size']) < 320:
+        vae_n_layers = 2
+    else:
+        vae_n_layers = 1
+
+    ddpm_dict['num_channels'] = features_per_stage[vae_n_layers:]
+    if len(ddpm_dict['num_channels']) < 2:
+        raise ValueError("The number of stages must be at least 2.")
+    # First 2 stages without attention, then attention for the rest
+    ddpm_dict['attention_levels'] = [False, False] + [True] * (len(ddpm_dict['num_channels']) - 2)
+
+    if len(ddpm_dict['num_channels']) != len(ddpm_dict['attention_levels']):
+        raise ValueError("num_channels and attention_levels must be of the same length.")
+    ddpm_dict['num_head_channels'] = [channel if use_attention else 0
+                                         for channel, use_attention in zip(ddpm_dict['num_channels'], ddpm_dict['attention_levels'])]
+
+    ddpm_dict['strides'] = strides[vae_n_layers+1:]
+    ddpm_dict['kernel_sizes'] = kernel_sizes[vae_n_layers+1:]
+    ddpm_dict['paddings'] = [1 for _ in range(len(ddpm_dict['kernel_sizes']))]
+
+    return ddpm_dict
+
+
+def create_config_dict(nnunet_config_dict, input_channels, autoencoder_dict, ddpm_dict):
+
+    features_per_stage = nnunet_config_dict['architecture']['arch_kwargs']['features_per_stage']
+
+    transformations = {
+        "patch_size": nnunet_config_dict['patch_size'],  # Random crop size
+        "scaling": True,  # Enable scaling transformations
+        "rotation": True,  # Enable rotation transformations
+        "gaussian_noise": True,  # Enable Gaussian noise
+        "gaussian_blur": True,  # Enable Gaussian blur
+        "low_resolution": True,
+        "brightness": True,  # Enable brightness adjustment
+        "contrast": True,  # Enable contrast adjustment
+        "gamma": True,  # Enable gamma adjustment
+        "mirror": True,  # Enable mirroring
+        "dummy_2d": True  # Enable dummy 2D mode
+    }
+
+    if autoencoder_dict['spatial_dims'] == 2:
+        perceptual_params = {'spatial_dims': 2, 'network_type': "vgg"}
+    else:
+        perceptual_params = {'spatial_dims': 3, 'network_type': "vgg", 'is_fake_3d': True, 'fake_3d_ratio': 0.2}
+
+    discriminator_params = {'spatial_dims': autoencoder_dict['spatial_dims'], 'in_channels': autoencoder_dict['in_channels'],
+                            'out_channels': 1, 'num_channels': features_per_stage[0] * 2, 'num_layers_d': 3}
+
+    # getting together the inferred parameters from our rules and nnU-Net, and also defining some fixed parameters
+    n_epochs = 1000
+    config = {
+        'input_channels': input_channels,
+        'transformations': transformations,
+        'batch_size': nnunet_config_dict['batch_size'],
+        'n_epochs': n_epochs,
+        'val_plot_interval': 10,
+        'grad_clip_max_norm': 1,
+        'grad_accumulate_step': 1,
+        'lr_scheduler': "LinearLR",
+        'lr_scheduler_params': {'start_factor': 1.0, 'end_factor': 0.0001, 'total_iters': int(n_epochs*0.9)},
+        'time_scheduler_params': {'num_train_timesteps': 1000, 'schedule': "scaled_linear_beta", 'beta_start': 0.0015,
+                                  'beta_end': 0.0195, 'prediction_type': "epsilon"},
+        'ae_learning_rate': 1e-2,
+        'weight_decay': 3e-5,
+        'd_learning_rate': 1e-2,
+        'autoencoder_warm_up_epochs': 10,
+        'vae_params': autoencoder_dict,
+        'perceptual_params': perceptual_params,
+        'discriminator_params': discriminator_params,
+        'ddpm_learning_rate': 1e-2,
+        'ddpm_params': ddpm_dict
+    }
+
+    # missing: grad_accumulate_step, q_weight, kl_weight, adv_weight, perc_weight, autoencoder_warm_up_epochs,
+    #          latent_space_type: "vae"
+
+    return config
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Automatically configure the parameters of image generation model "
+                                                 "with nnU-Net for dataset ID.")
+    parser.add_argument("-d", "--dataset_id", required=True, type=str, help="Dataset ID")
+    parser.add_argument("-c", "--input_channels", required=False, type=validate_channels, default=None,
+                        help="List of integers specifying input channel indexes to use. If not specified, all available channels will be used.")
+
+    args = parser.parse_args()
+    dataset_id = args.dataset_id
+    input_channels = args.input_channels
+
+    print(f"Configuring image generation parameters for Dataset ID: {dataset_id}")
+    print(f"Input channels: {input_channels if input_channels is not None else 'all'}")
+
+    # configure image generation with nnunet files
+    preprocessed_dataset_path = glob.glob(os.getenv('nnUNet_preprocessed') + f'/Dataset{dataset_id}*/')[0]
+    nnunet_plan_path = os.path.join(preprocessed_dataset_path, 'nnUNetPlans.json')
+    nnunet_data_json_path = os.path.join(preprocessed_dataset_path, 'dataset.json')
+
+    with open(nnunet_plan_path, "r") as file:
+        nnunet_plan = json.load(file)
+
+    with open(nnunet_data_json_path, "r") as file:
+        nnunet_data_json = json.load(file)
+
+    input_channels = input_channels if input_channels is not None \
+        else [i for i in range(len(nnunet_data_json['channel_names']))]
+
+    configuration_2d = nnunet_plan['configurations']['2d']
+    configuration_3d = nnunet_plan['configurations']['3d_fullres']
+
+    # for item in configuration_2d:
+    #     print(item, configuration_2d[item])
+
+    vae_dict_2d = create_autoencoder_dict(configuration_2d, input_channels, spatial_dims=2)
+    vae_dict_3d = create_autoencoder_dict(configuration_3d, input_channels, spatial_dims=3)
+
+    ddpm_dict_2d = create_ddpm_dict(configuration_2d, spatial_dims=2)
+    ddpm_dict_3d = create_ddpm_dict(configuration_3d, spatial_dims=3)
+
+    config_2d = create_config_dict(configuration_2d, input_channels, vae_dict_2d, ddpm_dict_2d)
+    config_3d = create_config_dict(configuration_3d, input_channels, vae_dict_3d, ddpm_dict_3d)
+
+    config = {'2D': config_2d, '3D': config_3d}
+
+    # TODO: define gradient accumulation and activation checkpointing based on the required gpu memory usage
+    # TODO: in the training code, define learning rates, learning rate schedulers, optimizer, time scheduler
+
+    # all networks have group norm implemented. To convert group norm to instance norm just use n_groups = n_channels
+
+    # TODO: adapt networks with given activations, normalizations, and convolution sizes
+    # TODO: define all the loss weights and autoencoder warm up epochs
+
+    # for item in config['2D']:
+    #     print(item)
+    #     print(config['2D'][item])
+
+    config_save_path = os.path.join(preprocessed_dataset_path, 'medimgen_config.yaml')
+
+    # Custom Dumper to avoid anchors and enforce list formatting
+    class CustomDumper(yaml.SafeDumper):
+        def ignore_aliases(self, data):
+            return True  # Removes YAML anchors (&id001)
+
+    # Ensure lists stay in flow style
+    def represent_list(dumper, data):
+        return dumper.represent_sequence('tag:yaml.org,2002:seq', data, flow_style=True)
+
+    CustomDumper.add_representer(list, represent_list)
+
+    # Save to YAML with all fixes
+    with open(config_save_path, "w") as file:
+        yaml.dump(config, file, sort_keys=False, Dumper=CustomDumper)
+
+    print(f"Configuration file for Dataset {dataset_id} saved at {config_save_path}")

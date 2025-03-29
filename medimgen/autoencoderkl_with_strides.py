@@ -38,6 +38,17 @@ else:
 __all__ = ["AutoencoderKL"]
 
 
+class InitWeights_He(object):
+    def __init__(self, neg_slope: float = 1e-2):
+        self.neg_slope = neg_slope
+
+    def __call__(self, module):
+        if isinstance(module, nn.Conv3d) or isinstance(module, nn.Conv2d) or isinstance(module, nn.ConvTranspose2d) or isinstance(module, nn.ConvTranspose3d):
+            module.weight = nn.init.kaiming_normal_(module.weight, a=self.neg_slope)
+            if module.bias is not None:
+                module.bias = nn.init.constant_(module.bias, 0)
+
+
 class Upsample(nn.Module):
     """
     Convolution-based upsampling layer.
@@ -341,9 +352,9 @@ class Encoder(nn.Module):
         attention_levels: Sequence[bool],
         with_nonlocal_attn: bool = True,
         use_flash_attention: bool = False,
-        strides=2,
-        kernel_sizes=4,
-        paddings=1
+        strides: int | Sequence[int] = 2,
+        kernel_sizes: int | Sequence[int] = 4,
+        paddings: int | Sequence[int] = 1
     ) -> None:
         super().__init__()
         self.spatial_dims = spatial_dims
@@ -490,9 +501,9 @@ class Decoder(nn.Module):
         with_nonlocal_attn: bool = True,
         use_flash_attention: bool = False,
         use_convtranspose: bool = False,
-        strides=2,
-        kernel_sizes=4,
-        paddings=1
+        strides: int | Sequence[int] = 2,
+        kernel_sizes: int | Sequence[int] = 4,
+        paddings: int | Sequence[int] = 1
     ) -> None:
         super().__init__()
         self.spatial_dims = spatial_dims
@@ -821,3 +832,7 @@ class AutoencoderKL(nn.Module):
     def decode_stage_2_outputs(self, z: torch.Tensor) -> torch.Tensor:
         image = self.decode(z)
         return image
+
+    @staticmethod
+    def initialize(module):
+        InitWeights_He(1e-2)(module)

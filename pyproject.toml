@@ -1,0 +1,44 @@
+[project]
+name = "medimgen"
+version = "0.1.0"
+description = "2D and 3D medical image generation with the help of nnU-Net."
+authors = [
+    { name = "Vangelis Kostoulas", email = "vageliskos93@gmail.com" }
+]
+keywords = [
+    'deep learning',
+    'image generation',
+    'diffusion models',
+    'latent diffusion models',
+    'medical image generation',
+    'nnU-Net',
+    'nnunet'
+]
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+dependencies = [
+    "argparse",
+    "torch",
+    "torchvision",
+    "torchaudio",
+    "nnunetv2",
+    "monai-generative",
+    "torchinfo",
+    "lpips",
+    "blosc2",
+    "xformers"
+]
+
+[project.scripts]
+medimgen_plan = "medimgen.configuration:main"
+medimgen_preprocess_dataset = "medimgen.preprocess_dataset:main"
+medimgen_train_ddpm = "medimgen.train_ddpm:main"
+medimgen_train_autoencoder = "medimgen.train_autoencoder:main"
+medimgen_train_ldm = "medimgen.train_ldm:main"
+medimgen_sample_ddpm = "medimgen.sample_ddpm:main"
+medimgen_sample_ldm = "medimgen.sample_ldm:main"
+
+[build-system]
+requires = ["setuptools>=68.2.0", "wheel"]
+build-backend = "setuptools.build_meta"
