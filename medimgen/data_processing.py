@@ -64,7 +64,7 @@ def create_split_files(dataset_id, splitting, model_type, seed=12345):
     if not file_names:
         # we got .b2nd files
         file_paths = glob.glob(os.path.join(dataset_path, "*.b2nd"))
-        file_names = [os.path.basename(fp).replace('.b2nd', '') for fp in file_paths]
+        file_names = [os.path.basename(fp).replace('.b2nd', '') for fp in file_paths if '_seg' not in fp]
 
     if splitting == "train-val-test":
         # Split data into 70% training, 10% validation, and 20% testing
