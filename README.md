@@ -1,4 +1,4 @@
-# Hyperparameter-Free Medical Image Generation with nnU-Net and Diffusion Models
+# Hyperparameter-Free Medical Image Generation with nnU-Net and Monai
 
 ### Description
 Training and sampling with 2D or 3D image generation models on your dataset

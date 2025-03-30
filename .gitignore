@@ -20,9 +20,9 @@
 !medimgen/utils.py
 
 # Allow the folder
-!medimgen/configs/
+#!medimgen/configs/
 
 # Ignore all files in the folder
- medimgen/configs/*
+# medimgen/configs/*
 # Allow the specific file
- !/medimgen/configs/config.yaml
+# !/medimgen/configs/config.yaml
