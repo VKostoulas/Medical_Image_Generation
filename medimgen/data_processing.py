@@ -2,6 +2,7 @@ import os
 import torch
 import glob
 import json
+import blosc2
 import pickle
 import multiprocessing
 import numpy as np
@@ -60,6 +61,10 @@ def create_split_files(dataset_id, splitting, model_type, seed=12345):
 
     file_paths = glob.glob(os.path.join(dataset_path, "*.npz"))
     file_names = [os.path.basename(fp).replace('.npz', '') for fp in file_paths]
+    if not file_names:
+        # we got .b2nd files
+        file_paths = glob.glob(os.path.join(dataset_path, "*.b2nd"))
+        file_names = [os.path.basename(fp).replace('.b2nd', '') for fp in file_paths]
 
     if splitting == "train-val-test":
         # Split data into 70% training, 10% validation, and 20% testing
@@ -125,6 +130,7 @@ def get_data_loaders(config, dataset_id, splitting, model_type, fold=None):
     return train_loader, val_loader
 
 
+# TODO: Fix this?
 def _convert_to_npy(npz_file: str, unpack_segmentation: bool = True, overwrite_existing: bool = False,
                     verify_npy: bool = False, fail_ctr: int = 0) -> None:
     data_npy = npz_file[:-3] + "npy"
@@ -338,9 +344,16 @@ class MedicalDataset(Dataset):
         return transformed_image
 
     def load_image(self, name):
+        dparams = {'nthreads': 1}
+
         image_path_npy = os.path.join(self.data_path, name + '.npy')
         if not os.path.isfile(image_path_npy):
-            image = np.load(os.path.join(self.data_path, name + '.npz'))['data']
+            image_path_npz = os.path.join(self.data_path, name + '.npz')
+            if not os.path.isfile(image_path_npz):
+                data_b2nd_file = os.path.join(self.data_path, name + '.b2nd')
+                image = blosc2.open(urlpath=data_b2nd_file, mode='r', dparams=dparams, mmap_mode='r')
+            else:
+                image = np.load(os.path.join(self.data_path, name + '.npz'))['data']
         else:
             image = np.load(image_path_npy, mmap_mode='r')
 

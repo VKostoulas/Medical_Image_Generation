@@ -526,7 +526,7 @@ def create_autoencoder_dict(nnunet_config_dict, input_channels, spatial_dims):
                 'with_encoder_nonlocal_attn': False,
                 'with_decoder_nonlocal_attn': False,
                 'use_flash_attention': False,
-                'use_checkpointing': True,
+                'use_checkpointing': False,
                 'use_convtranspose': False
                }
 
@@ -614,10 +614,12 @@ def create_config_dict(nnunet_config_dict, input_channels, autoencoder_dict, ddp
 
     # getting together the inferred parameters from our rules and nnU-Net, and also defining some fixed parameters
     n_epochs = 1000
+    # for 2d use 75% of batch size
+    batch_size = int(nnunet_config_dict['batch_size'] * 0.75) if autoencoder_dict['spatial_dims'] == 2 else nnunet_config_dict['batch_size']
     config = {
         'input_channels': input_channels,
         'transformations': transformations,
-        'batch_size': nnunet_config_dict['batch_size'],
+        'batch_size': batch_size,
         'n_epochs': n_epochs,
         'val_plot_interval': 10,
         'grad_clip_max_norm': 1,

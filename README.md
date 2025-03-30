@@ -32,6 +32,7 @@ If you want to further develop this project:
 2. create your virtual environment
 3. install [pytorch](https://pytorch.org/get-started/locally/)
 4. install [nnunetv2](https://github.com/MIC-DKFZ/nnUNet/blob/master/documentation/installation_instructions.md)
+5. pip install -U xformers --index-url https://download.pytorch.org/whl/cu118
 3. in the environment run: pip install -e .
 
 [//]: # (- If pip doesn't work:)
@@ -138,8 +139,6 @@ the values for some additional hyperparameters that are not involved in nnUNet
 
 ### Training
 
-#### Denoising Diffusion Probabilistic Model
-
 All the training commands include these arguments:
 - DATASET_ID: corresponds to the numeric dataset identifier (e.g., 001 for Brain Tumour
 dataset from Medical Segmentation Decathlon)
@@ -148,6 +147,7 @@ splitting
 - MODEL_TYPE: should be either '2d' or '3d' 
 - -p: indicates that we want to see progress bars.
 
+#### Denoising Diffusion Probabilistic Model
 Here is an example to train a Denoising Diffusion Probabilistic Model:
 
 ```bash
