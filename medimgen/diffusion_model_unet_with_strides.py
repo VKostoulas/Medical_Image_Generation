@@ -1821,9 +1821,9 @@ class DiffusionModelUNet(nn.Module):
             spatial_dims=spatial_dims,
             in_channels=in_channels,
             out_channels=num_channels[0],
-            strides=1,
-            kernel_size=3,
-            padding=1,
+            strides=strides[0],
+            kernel_size=kernel_sizes[0],
+            padding=paddings[0],
             conv_only=True,
         )
 
@@ -1864,9 +1864,9 @@ class DiffusionModelUNet(nn.Module):
                 upcast_attention=upcast_attention,
                 use_flash_attention=use_flash_attention,
                 dropout_cattn=dropout_cattn,
-                stride=strides[i] if not is_final_block else None,
-                kernel_size=kernel_sizes[i] if not is_final_block else None,
-                padding=paddings[i] if not is_final_block else None
+                stride=strides[i+1] if not is_final_block else None,
+                kernel_size=kernel_sizes[i+1] if not is_final_block else None,
+                padding=paddings[i+1] if not is_final_block else None
             )
 
             self.down_blocks.append(down_block)

@@ -373,9 +373,9 @@ class Encoder(nn.Module):
                 spatial_dims=spatial_dims,
                 in_channels=in_channels,
                 out_channels=num_channels[0],
-                strides=1,
-                kernel_size=3,
-                padding=1,
+                strides=strides if isinstance(strides, int) else strides[0],
+                kernel_size=kernel_sizes if isinstance(kernel_sizes, int) else kernel_sizes[0],
+                padding=paddings if isinstance(paddings, int) else paddings[0],
                 conv_only=True,
             )
         )
@@ -410,9 +410,9 @@ class Encoder(nn.Module):
                     )
 
             if not is_final_block:
-                temp_stride = strides if isinstance(strides, int) else strides[i]
-                temp_kernel_size = kernel_sizes if isinstance(kernel_sizes, int) else kernel_sizes[i]
-                temp_padding = paddings if isinstance(paddings, int) else paddings[i]
+                temp_stride = strides if isinstance(strides, int) else strides[i+1]
+                temp_kernel_size = kernel_sizes if isinstance(kernel_sizes, int) else kernel_sizes[i+1]
+                temp_padding = paddings if isinstance(paddings, int) else paddings[i+1]
                 blocks.append(Downsample(spatial_dims=spatial_dims, in_channels=input_channel, stride=temp_stride,
                                          kernel_size=temp_kernel_size, padding=temp_padding))
 

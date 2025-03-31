@@ -8,6 +8,7 @@ import os
 import sys
 import time
 import glob
+import traceback
 import pickle
 import argparse
 import matplotlib.pyplot as plt
@@ -339,14 +340,16 @@ class LDM:
         img_shape = self.config['transformations']['patch_size']
         ae_input_shape = (self.config['batch_size'], self.autoencoder.encoder.in_channels, *img_shape)
         ddpm_input_shape = [(self.config['batch_size'], *z_shape[1:]), (self.config['batch_size'],)]
-        summary(self.autoencoder, ae_input_shape, batch_dim=None, depth=3)
-        summary(self.ddpm, ddpm_input_shape, batch_dim=None, depth=3)
 
         optimizer, lr_scheduler = self.get_optimizer_and_lr_schedule()
 
         if self.config['load_model_path']:
             start_epoch = self.load_model(self.config['load_model_path'], optimizer=optimizer, lr_scheduler=lr_scheduler,
                                           for_training=True)
+
+        print(f"\nStarting training ldm model...")
+        summary(self.autoencoder, ae_input_shape, batch_dim=None, depth=3)
+        summary(self.ddpm, ddpm_input_shape, batch_dim=None, depth=3)
 
         for epoch in range(start_epoch, self.config['n_epochs']):
             self.train_one_epoch(epoch, train_loader, optimizer, scaler, inferer)
@@ -375,13 +378,15 @@ class LDM:
         train_loader.dataset.unpack_dataset()
 
         try:
-            print(f"\nStarting training ldm model...")
             self.train_main(train_loader=train_loader, val_loader=val_loader)
-        except BaseException as e:
-            error_message = str(e) or type(e).__name__
-            print(f"An exception occurred: {error_message}")
+        except KeyboardInterrupt:
+            print("\nTraining interrupted by user (KeyboardInterrupt).")
+        except Exception as e:
+            print("\nAn error occurred during training:")
+            traceback.print_exc()
         finally:
-            # remove all .npy files
+            # Clean up no matter what
+            print("\nCleaning up dataset...")
             not_clean = True
             while not_clean:
                 try:
