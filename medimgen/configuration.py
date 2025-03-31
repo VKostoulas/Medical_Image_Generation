@@ -546,9 +546,6 @@ def create_autoencoder_dict(nnunet_config_dict, input_channels, spatial_dims):
     downsample_parameters = [[item1, item2, 1] for item1, item2 in zip(strides[:vae_n_layers+1], kernel_sizes[:vae_n_layers+1])]
     vae_dict['downsample_parameters'] = downsample_parameters
     vae_dict['upsample_parameters'] = list(reversed(downsample_parameters))
-    print(strides)
-    print(kernel_sizes)
-    print(downsample_parameters)
     return vae_dict
 
 
