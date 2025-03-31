@@ -382,7 +382,6 @@ class LDM:
         except KeyboardInterrupt:
             print("\nTraining interrupted by user (KeyboardInterrupt).")
         except Exception as e:
-            print("\nAn error occurred during training:")
             traceback.print_exc()
         finally:
             # Clean up no matter what

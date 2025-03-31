@@ -543,9 +543,11 @@ def create_autoencoder_dict(nnunet_config_dict, input_channels, spatial_dims):
 
     # nnunet gives you the parameters of the first conv block and then all the downsample parameters
     # For the autoencoder we pass these directly but for the ddpm things are a bit different (see create_ddpm_dict)
-    downsample_parameters = [[item1, item2, 1] for item1, item2 in zip(strides[:vae_n_layers+1], kernel_sizes[:vae_n_layers+1])]
+    downsample_parameters = [[item1, item2] for item1, item2 in zip(strides[:vae_n_layers+1], kernel_sizes[:vae_n_layers+1])]
+    paddings = [[1 if k == 3 else 0 for k in layer] for layer in kernel_sizes[:vae_n_layers+1]]
+    downsample_parameters = [item1 + [item2] for item1, item2 in zip(downsample_parameters, paddings)]
     vae_dict['downsample_parameters'] = downsample_parameters
-    vae_dict['upsample_parameters'] = list(reversed(downsample_parameters))
+    vae_dict['upsample_parameters'] = list(reversed(downsample_parameters))[:-1]
     return vae_dict
 
 
@@ -585,7 +587,7 @@ def create_ddpm_dict(nnunet_config_dict, spatial_dims):
     # corresponding layer of nnunet. Then we use all the corresponding nnunet layers for the rest of diffusion layers
     ddpm_dict['strides'] = [[1] * spatial_dims] + strides[vae_n_layers+1:]
     ddpm_dict['kernel_sizes'] = [kernel_sizes[vae_n_layers+1]] + kernel_sizes[vae_n_layers+1:]
-    ddpm_dict['paddings'] = [1 for _ in range(len(ddpm_dict['kernel_sizes']))]
+    ddpm_dict['paddings'] = [[1 if k == 3 else 0 for k in layer] for layer in ddpm_dict['kernel_sizes']]
 
     return ddpm_dict
 
