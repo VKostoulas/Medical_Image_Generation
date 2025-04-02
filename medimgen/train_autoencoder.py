@@ -332,7 +332,7 @@ class AutoEncoder:
         start_epoch = 0
         plot_save_path = os.path.join(self.config['results_path'], 'plots')
 
-        img_shape = self.config['transformations']['patch_size']
+        img_shape = self.config['ae_transformations']['patch_size']
         input_shape = (self.config['batch_size'], self.autoencoder.encoder.in_channels, *img_shape)
 
         discriminator = PatchDiscriminator(**self.config['discriminator_params']).to(self.device)
@@ -551,7 +551,8 @@ def main():
     # brain:
 
     # config['transformations']['patch_size'] = (64, 64) # TODO: remove this
-    train_loader, val_loader = get_data_loaders(config, dataset_id, splitting, model_type, fold)
+    transformations = config['ae_transformations']
+    train_loader, val_loader = get_data_loaders(config, dataset_id, splitting, model_type, transformations, fold)
 
     model = AutoEncoder(config=config, latent_space_type=latent_space_type)
     model.train(train_loader=train_loader, val_loader=val_loader)

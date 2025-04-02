@@ -596,7 +596,7 @@ def create_config_dict(nnunet_config_dict, input_channels, autoencoder_dict, ddp
 
     features_per_stage = nnunet_config_dict['architecture']['arch_kwargs']['features_per_stage']
 
-    transformations = {
+    ae_transformations = {
         "patch_size": nnunet_config_dict['patch_size'],  # Random crop size
         "scaling": True,  # Enable scaling transformations
         "rotation": True,  # Enable rotation transformations
@@ -609,6 +609,20 @@ def create_config_dict(nnunet_config_dict, input_channels, autoencoder_dict, ddp
         "mirror": True,  # Enable mirroring
         "dummy_2d": True  # Enable dummy 2D mode
     }
+    # not using augmentations for ddpm training
+    ddpm_transformations = {
+        "patch_size": nnunet_config_dict['patch_size'],  # Random crop size
+        "scaling": False,  # Enable scaling transformations
+        "rotation": False,  # Enable rotation transformations
+        "gaussian_noise": False,  # Enable Gaussian noise
+        "gaussian_blur": False,  # Enable Gaussian blur
+        "low_resolution": False,
+        "brightness": False,  # Enable brightness adjustment
+        "contrast": False,  # Enable contrast adjustment
+        "gamma": False,  # Enable gamma adjustment
+        "mirror": False,  # Enable mirroring
+        "dummy_2d": False  # Enable dummy 2D mode
+    }
 
     if autoencoder_dict['spatial_dims'] == 2:
         perceptual_params = {'spatial_dims': 2, 'network_type': "vgg"}
@@ -619,19 +633,24 @@ def create_config_dict(nnunet_config_dict, input_channels, autoencoder_dict, ddp
                             'out_channels': 1, 'num_channels': features_per_stage[0] * 2, 'num_layers_d': 3}
 
     # getting together the inferred parameters from our rules and nnU-Net, and also defining some fixed parameters
-    n_epochs = 1000
+    n_epochs = 500
     # for 2d use 75% of batch size
     batch_size = int(nnunet_config_dict['batch_size'] * 0.75) if autoencoder_dict['spatial_dims'] == 2 else nnunet_config_dict['batch_size']
     config = {
         'input_channels': input_channels,
-        'transformations': transformations,
+        'ae_transformations': ae_transformations,
+        'ddpm_transformations': ddpm_transformations,
         'batch_size': batch_size,
         'n_epochs': n_epochs,
         'val_plot_interval': 10,
         'grad_clip_max_norm': 1,
         'grad_accumulate_step': 1,
-        'lr_scheduler': "LinearLR",
-        'lr_scheduler_params': {'start_factor': 1.0, 'end_factor': 0.0001, 'total_iters': int(n_epochs*0.9)},
+        'oversample_ratio': 0.33,
+        'num_workers': 8,
+        # 'lr_scheduler': "LinearLR",
+        # 'lr_scheduler_params': {'start_factor': 1.0, 'end_factor': 0.0001, 'total_iters': int(n_epochs*0.9)},
+        'lr_scheduler': "PolynomialLR",
+        'lr_scheduler_params': {'total_iters': n_epochs, 'power': 0.9},
         'time_scheduler_params': {'num_train_timesteps': 1000, 'schedule': "scaled_linear_beta", 'beta_start': 0.0015,
                                   'beta_end': 0.0195, 'prediction_type': "epsilon"},
         'ae_learning_rate': 1e-2,

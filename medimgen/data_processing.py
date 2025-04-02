@@ -99,7 +99,7 @@ def get_data_ids(split_file_path, fold=None):
     return {"train": train_ids, "val": val_ids}
 
 
-def get_data_loaders(config, dataset_id, splitting, model_type, fold=None):
+def get_data_loaders(config, dataset_id, splitting, model_type, transformations, fold=None):
     # based on input arg splitting, the dataloader will return 2 different pairs of train-val loaders:
     # splitting: "train-val-test"
     #        train loader will contain 70% and val loader 10% of the whole dataset. 20% left fot test set
@@ -116,15 +116,15 @@ def get_data_loaders(config, dataset_id, splitting, model_type, fold=None):
     dataset_path = os.path.join(preprocessed_dataset_path, nnunet_path)
 
     train_ds = MedicalDataset(data_path=dataset_path, data_ids=data_ids['train'], batch_size=config['batch_size'],
-                              section="training", transformation_args=config['transformations'],
-                              oversample_foreground_percent=0.33, channel_ids=config['input_channels'])
+                              section="training", transformation_args=transformations,
+                              oversample_foreground_percent=config['oversample_ratio'], channel_ids=config['input_channels'])
     val_ds = MedicalDataset(data_path=dataset_path, data_ids=data_ids['val'], batch_size=config['batch_size'],
-                            section="validation", transformation_args=config['transformations'],
-                            oversample_foreground_percent=0.33, channel_ids=config['input_channels'])
+                            section="validation", transformation_args=transformations,
+                            oversample_foreground_percent=config['oversample_ratio'], channel_ids=config['input_channels'])
 
     train_sampler = CustomBatchSampler(train_ds, batch_size=config['batch_size'], number_of_steps=250, shuffle=True)
     val_sampler = CustomBatchSampler(val_ds, batch_size=config['batch_size'], number_of_steps=50, shuffle=False)
-    loader_args = dict(num_workers=8, pin_memory=True, prefetch_factor=2)
+    loader_args = dict(num_workers=config['num_workers'], pin_memory=True, prefetch_factor=2)
     train_loader = DataLoader(train_ds, batch_sampler=train_sampler, **loader_args)
     val_loader = DataLoader(val_ds, batch_sampler=val_sampler,**loader_args)
     return train_loader, val_loader
