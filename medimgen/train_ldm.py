@@ -269,7 +269,7 @@ class LDM:
             for slice_idx in range(num_slices):
                 plt.figure(figsize=(2, 2))
                 slice_image = sampled_image.cpu()[0, 0, slice_idx, :, :]
-                plt.imshow(slice_image, vmin=0, vmax=1, cmap="gray")
+                plt.imshow(slice_image, cmap="gray")
                 plt.axis("off")
 
                 buffer = BytesIO()
