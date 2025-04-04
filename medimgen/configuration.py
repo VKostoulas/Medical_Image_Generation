@@ -660,7 +660,7 @@ def create_config_dict(nnunet_config_dict, input_channels, autoencoder_dict, ddp
         'vae_params': autoencoder_dict,
         'perceptual_params': perceptual_params,
         'discriminator_params': discriminator_params,
-        'ddpm_learning_rate': 1e-2,
+        'ddpm_learning_rate': 5e-5,
         'ddpm_params': ddpm_dict
     }
 

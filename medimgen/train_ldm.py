@@ -113,9 +113,9 @@ class LDM:
         return inferer, z_shape
 
     def get_optimizer_and_lr_schedule(self):
-        # optimizer = torch.optim.Adam(params=self.ddpm.parameters(), lr=self.config['ddpm_learning_rate'])
-        optimizer = torch.optim.SGD(self.ddpm.parameters(), self.config['ddpm_learning_rate'],
-                                      weight_decay=self.config['weight_decay'], momentum=0.99, nesterov=True)
+        optimizer = torch.optim.AdamW(params=self.ddpm.parameters(), lr=self.config['ddpm_learning_rate'])
+        # optimizer = torch.optim.SGD(self.ddpm.parameters(), self.config['ddpm_learning_rate'],
+        #                               weight_decay=self.config['weight_decay'], momentum=0.99, nesterov=True)
         if self.config["lr_scheduler"]:
             scheduler_class = getattr(torch.optim.lr_scheduler, self.config["lr_scheduler"])  # Get the class dynamically
             lr_scheduler = scheduler_class(optimizer, **self.config["lr_scheduler_params"])
