@@ -11,6 +11,7 @@ import glob
 import traceback
 import pickle
 import argparse
+import numpy as np
 import matplotlib.pyplot as plt
 import torch
 import torch.nn.functional as F
@@ -232,14 +233,19 @@ class LDM:
 
         self.loss_dict['val_rec_loss'].append(val_epoch_loss / len(val_loader))
 
-    def sample_image(self, z_shape, inferer, verbose=False, seed=None):
+    def sample_images(self, z_shape, inferer, verbose=False, seed=None):
         self.ddpm.eval()
         self.autoencoder.eval()
         if seed:
             # set seed for reproducible sampling
             torch.manual_seed(seed)
-        input_noise = torch.randn(1, *z_shape[1:]).to(self.device)
+        # sample a maximum of 16 images for 2D, 2 for 3D
+        max_n_samples = 16 if self.config['ddpm_params']['spatial_dims'] == 2 else 2
+        input_shape = [min(z_shape[0], max_n_samples), *z_shape[1:]]
+        input_noise = torch.randn(*input_shape).to(self.device)
+
         self.scheduler.set_timesteps(num_inference_steps=self.config['time_scheduler_params']['num_train_timesteps'])
+
         with torch.no_grad():
             with autocast(enabled=True):
                 if self.latent_space_type == 'vq':
@@ -247,45 +253,110 @@ class LDM:
                                                             scheduler=self.scheduler, verbose=verbose)
                     unscaled_latents = self.codebook_min_max_renormalize(generated_latents)
                     quantized_latents, _ = self.autoencoder.quantize(unscaled_latents)
-                    image = self.autoencoder.decode(quantized_latents)
+                    images = self.autoencoder.decode(quantized_latents)
                 elif self.latent_space_type == 'vae':
-                    image = inferer.sample(input_noise=input_noise, diffusion_model=self.ddpm,
-                                           autoencoder_model=self.autoencoder, scheduler=self.scheduler,
-                                           verbose=verbose)
+                    images = inferer.sample(input_noise=input_noise, diffusion_model=self.ddpm,
+                                            autoencoder_model=self.autoencoder, scheduler=self.scheduler,
+                                            verbose=verbose)
                     # image = self.autoencoder.decode_stage_2_outputs(generated_latents)
-        return image
+        return images
 
-    def save_plots(self, sampled_image, plot_name):
+    # def save_plots(self, sampled_images, plot_name):
+    #     save_path = os.path.join(self.config['results_path'], 'plots')
+    #     os.makedirs(save_path, exist_ok=True)
+    #
+    #     is_3d = len(sampled_images.shape) == 5
+    #
+    #     if is_3d:
+    #         plot_save_path = os.path.join(save_path, f'{plot_name}.gif')
+    #         num_slices = sampled_images.shape[2]
+    #         gif_images = []
+    #
+    #         for slice_idx in range(num_slices):
+    #             plt.figure(figsize=(2, 2))
+    #             slice_image = sampled_images.cpu()[0, 0, slice_idx, :, :]
+    #             plt.imshow(slice_image, cmap="gray")
+    #             plt.axis("off")
+    #
+    #             buffer = BytesIO()
+    #             plt.savefig(buffer, format='png', dpi=300, bbox_inches='tight', pad_inches=0)
+    #             plt.close()
+    #
+    #             buffer.seek(0)
+    #             gif_image = Image.open(buffer).copy()
+    #             gif_images.append(gif_image)
+    #             buffer.close()
+    #
+    #         create_gif_from_images(gif_images, plot_save_path)
+    #     else:
+    #         slice_image = sampled_images.cpu()[0, 0, :, :]
+    #         plot_save_path = os.path.join(save_path, f'{plot_name}.png')
+    #         create_2d_image_plot(slice_image, save_path=plot_save_path)
+
+    def save_plots(self, sampled_images, plot_name):
         save_path = os.path.join(self.config['results_path'], 'plots')
         os.makedirs(save_path, exist_ok=True)
 
-        is_3d = len(sampled_image.shape) == 5
+        is_3d = len(sampled_images.shape) == 5
 
         if is_3d:
+            # 3D case: assume shape (N, C, D, H, W)
             plot_save_path = os.path.join(save_path, f'{plot_name}.gif')
-            num_slices = sampled_image.shape[2]
+            num_volumes = min(sampled_images.shape[0], 2)
+            num_slices = sampled_images.shape[2]
             gif_images = []
 
+            # Loop over all slices in the depth dimension
             for slice_idx in range(num_slices):
-                plt.figure(figsize=(2, 2))
-                slice_image = sampled_image.cpu()[0, 0, slice_idx, :, :]
-                plt.imshow(slice_image, cmap="gray")
-                plt.axis("off")
+                fig, axes = plt.subplots(1, num_volumes, figsize=(2 * num_volumes, 2))
+                if num_volumes == 1:
+                    axes = [axes]  # Ensure axes is iterable
 
+                # For each volume (up to 2), plot the corresponding slice
+                for vol_idx in range(num_volumes):
+                    # Extract the slice for the given volume (assumes single channel)
+                    slice_image = sampled_images.cpu()[vol_idx, 0, slice_idx, :, :]
+                    axes[vol_idx].imshow(slice_image, cmap="gray")
+                    axes[vol_idx].axis("off")
+
+                plt.tight_layout(pad=0)
                 buffer = BytesIO()
                 plt.savefig(buffer, format='png', dpi=300, bbox_inches='tight', pad_inches=0)
                 plt.close()
-
                 buffer.seek(0)
-                gif_image = Image.open(buffer).copy()
-                gif_images.append(gif_image)
+                gif_frame = Image.open(buffer).copy()
+                gif_images.append(gif_frame)
                 buffer.close()
 
             create_gif_from_images(gif_images, plot_save_path)
+
         else:
-            slice_image = sampled_image.cpu()[0, 0, :, :]
+            # 2D case: assume shape (N, C, H, W)
+            num_images = min(sampled_images.shape[0], 16)
+            selected_images = sampled_images.cpu()[:num_images, 0, :, :]  # take the first channel
+            columns = min(4, num_images)
+            rows = (num_images + columns - 1) // columns
+
+            fig, axes = plt.subplots(rows, columns, figsize=(columns * 2, rows * 2))
+            # Ensure axes is a flat list for easy iteration
+            if isinstance(axes, np.ndarray):
+                axes = axes.flatten()
+            else:
+                axes = [axes]
+
+            # Loop through grid positions
+            for idx in range(rows * columns):
+                ax = axes[idx]
+                if idx < num_images:
+                    ax.imshow(selected_images[idx], cmap="gray")
+                    ax.axis("off")
+                else:
+                    ax.axis("off")  # Hide unused subplots
+
+            plt.tight_layout(pad=0)
             plot_save_path = os.path.join(save_path, f'{plot_name}.png')
-            create_2d_image_plot(slice_image, save_path=plot_save_path)
+            plt.savefig(plot_save_path, dpi=300, bbox_inches='tight', pad_inches=0)
+            plt.close()
 
     def save_model(self, epoch, validation_loss, optimizer, scheduler=None):
         save_path = os.path.join(self.config['results_path'], 'checkpoints')
@@ -363,8 +434,8 @@ class LDM:
 
             if epoch % self.config['val_plot_interval'] == 0:
                 sample_verbose = not (self.config['output_mode'] == 'log' or not self.config['progress_bar'])
-                sampled_image = self.sample_image(z_shape, inferer, sample_verbose, seed=sample_seed)
-                self.save_plots(sampled_image, plot_name=f"epoch_{epoch}.gif")
+                sampled_images = self.sample_images(z_shape, inferer, sample_verbose, seed=sample_seed)
+                self.save_plots(sampled_images, plot_name=f"epoch_{epoch}.gif")
 
             if lr_scheduler:
                 lr_scheduler.step()
