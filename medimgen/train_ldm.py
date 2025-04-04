@@ -357,6 +357,7 @@ class LDM:
             plot_save_path = os.path.join(save_path, f'{plot_name}.png')
             plt.savefig(plot_save_path, dpi=300, bbox_inches='tight', pad_inches=0)
             plt.close()
+            print(f"Plot created successfully at {plot_save_path}")
 
     def save_model(self, epoch, validation_loss, optimizer, scheduler=None):
         save_path = os.path.join(self.config['results_path'], 'checkpoints')
@@ -435,7 +436,7 @@ class LDM:
             if epoch % self.config['val_plot_interval'] == 0:
                 sample_verbose = not (self.config['output_mode'] == 'log' or not self.config['progress_bar'])
                 sampled_images = self.sample_images(z_shape, inferer, sample_verbose, seed=sample_seed)
-                self.save_plots(sampled_images, plot_name=f"epoch_{epoch}.gif")
+                self.save_plots(sampled_images, plot_name=f"epoch_{epoch}")
 
             if lr_scheduler:
                 lr_scheduler.step()
