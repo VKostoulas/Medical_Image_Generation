@@ -668,7 +668,7 @@ def create_config_dict(nnunet_config_dict, input_channels, autoencoder_dict, ddp
                                   'beta_end': 0.0205, 'prediction_type': "v_prediction"},
         'ae_learning_rate': 5e-5,
         'weight_decay': 3e-5,
-        'd_learning_rate': 1e-4,
+        'd_learning_rate': 5e-5,
         'autoencoder_warm_up_epochs': 10,
         'kl_weight': 1e-8,
         'adv_weight': 0.005,
