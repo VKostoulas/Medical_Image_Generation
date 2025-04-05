@@ -530,12 +530,24 @@ def create_autoencoder_dict(nnunet_config_dict, input_channels, spatial_dims):
                 'use_convtranspose': False
                }
 
-    if np.max(nnunet_config_dict['patch_size']) >= 320:
-        vae_n_layers = 3
-    elif 160 <= np.max(nnunet_config_dict['patch_size']) < 320:
+    # use maximum of 3 autoencoder downsampling layers
+    # for max image size 512, 3 ae layers --> latent size 64 --> good
+    # for max image size 400, 3 ae layers --> latent size 50 --> good
+    # for max image size 320, 3 ae layers --> latent size 40 --> good
+    # when 3 layers are more than needed? when latent size after 2 downsamplings is <= 64 --> patch_size <= 256
+    # for max image size 256, 2 ae layers --> latent size 64 --> good
+    # for max image size 200, 2 ae layers --> latent size 50 --> good
+    # for max image size 160, 2 ae layers --> latent size 40 --> good
+    # for max image size 128, 2 ae layers --> latent size 32 --> good
+    # when 2 layers are more than needed? when latent size after 1 downsamplings is <= 32 --> patch_size <= 64
+    # for max image size 100, 2 ae layers --> latent size 25 --> good
+    # for max image size 64, 1 ae layer --> latent size 32 --> good
+    if np.max(nnunet_config_dict['patch_size']) <= 64:
+        vae_n_layers = 1
+    elif np.max(nnunet_config_dict['patch_size']) <= 256:
         vae_n_layers = 2
     else:
-        vae_n_layers = 1
+        vae_n_layers = 3
 
     vae_dict['num_channels'] = features_per_stage[:vae_n_layers+1]
     vae_dict['attention_levels'] = [False] * (vae_n_layers+1)
@@ -564,12 +576,13 @@ def create_ddpm_dict(nnunet_config_dict, spatial_dims):
                  'use_flash_attention': False,
                 }
 
-    if np.max(nnunet_config_dict['patch_size']) >= 320:
-        vae_n_layers = 3
-    elif 160 <= np.max(nnunet_config_dict['patch_size']) < 320:
+    # check create_autoencoder_dict
+    if np.max(nnunet_config_dict['patch_size']) <= 64:
+        vae_n_layers = 1
+    elif np.max(nnunet_config_dict['patch_size']) <= 256:
         vae_n_layers = 2
     else:
-        vae_n_layers = 1
+        vae_n_layers = 3
 
     ddpm_dict['num_channels'] = features_per_stage[vae_n_layers:]
     if len(ddpm_dict['num_channels']) < 2:
@@ -600,14 +613,14 @@ def create_config_dict(nnunet_config_dict, input_channels, autoencoder_dict, ddp
         "patch_size": nnunet_config_dict['patch_size'],  # Random crop size
         "scaling": True,  # Enable scaling transformations
         "rotation": True,  # Enable rotation transformations
-        "gaussian_noise": True,  # Enable Gaussian noise
-        "gaussian_blur": True,  # Enable Gaussian blur
-        "low_resolution": True,
-        "brightness": True,  # Enable brightness adjustment
-        "contrast": True,  # Enable contrast adjustment
-        "gamma": True,  # Enable gamma adjustment
+        "gaussian_noise": False,  # Enable Gaussian noise
+        "gaussian_blur": False,  # Enable Gaussian blur
+        "low_resolution": False,
+        "brightness": False,  # Enable brightness adjustment
+        "contrast": False,  # Enable contrast adjustment
+        "gamma": False,  # Enable gamma adjustment
         "mirror": True,  # Enable mirroring
-        "dummy_2d": True  # Enable dummy 2D mode
+        "dummy_2d": False  # Enable dummy 2D mode
     }
     # not using augmentations for ddpm training
     ddpm_transformations = {
@@ -645,18 +658,21 @@ def create_config_dict(nnunet_config_dict, input_channels, autoencoder_dict, ddp
         'val_plot_interval': 10,
         'grad_clip_max_norm': 1,
         'grad_accumulate_step': 1,
-        'oversample_ratio': 0.33,
+        'oversample_ratio': 1.0,
         'num_workers': 8,
         # 'lr_scheduler': "LinearLR",
         # 'lr_scheduler_params': {'start_factor': 1.0, 'end_factor': 0.0001, 'total_iters': int(n_epochs*0.9)},
         'lr_scheduler': "PolynomialLR",
         'lr_scheduler_params': {'total_iters': n_epochs, 'power': 0.9},
         'time_scheduler_params': {'num_train_timesteps': 1000, 'schedule': "scaled_linear_beta", 'beta_start': 0.0015,
-                                  'beta_end': 0.0195, 'prediction_type': "epsilon"},
-        'ae_learning_rate': 1e-2,
+                                  'beta_end': 0.0205, 'prediction_type': "v_prediction"},
+        'ae_learning_rate': 5e-5,
         'weight_decay': 3e-5,
-        'd_learning_rate': 1e-2,
+        'd_learning_rate': 1e-4,
         'autoencoder_warm_up_epochs': 10,
+        'kl_weight': 1e-8,
+        'adv_weight': 0.05,
+        'perc_weight': 0.025,
         'vae_params': autoencoder_dict,
         'perceptual_params': perceptual_params,
         'discriminator_params': discriminator_params,

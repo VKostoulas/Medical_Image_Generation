@@ -205,13 +205,13 @@ class AutoEncoder:
             return image, reconstruction
 
     def get_optimizers_and_lr_schedules(self, discriminator):
-        # optimizer_g = torch.optim.Adam(params=self.autoencoder.parameters(), lr=self.config['ae_learning_rate'])
-        # optimizer_d = torch.optim.Adam(params=discriminator.parameters(), lr=self.config['d_learning_rate'])
+        optimizer_g = torch.optim.Adam(params=self.autoencoder.parameters(), lr=self.config['ae_learning_rate'])
+        optimizer_d = torch.optim.Adam(params=discriminator.parameters(), lr=self.config['d_learning_rate'])
 
-        optimizer_g = torch.optim.SGD(self.autoencoder.parameters(), self.config['ae_learning_rate'],
-                                      weight_decay=self.config['weight_decay'], momentum=0.99, nesterov=True)
-        optimizer_d = torch.optim.SGD(discriminator.parameters(), self.config['d_learning_rate'],
-                                      weight_decay=self.config['weight_decay'], momentum=0.99, nesterov=True)
+        # optimizer_g = torch.optim.SGD(self.autoencoder.parameters(), self.config['ae_learning_rate'],
+        #                               weight_decay=self.config['weight_decay'], momentum=0.99, nesterov=True)
+        # optimizer_d = torch.optim.SGD(discriminator.parameters(), self.config['d_learning_rate'],
+        #                               weight_decay=self.config['weight_decay'], momentum=0.99, nesterov=True)
 
         if self.config["lr_scheduler"]:
             scheduler_class = getattr(torch.optim.lr_scheduler, self.config["lr_scheduler"])  # Get the class dynamically
@@ -540,9 +540,9 @@ def main():
     # config['batch_size'] = 4
     # config['autoencoder_warm_up_epochs'] = 5
     # config['grad_accumulate_step'] = 1
-    config['kl_weight'] = 1e-8
-    config['adv_weight'] = 0.25
-    config['perc_weight'] = 1
+    # config['kl_weight'] = 1e-8
+    # config['adv_weight'] = 0.25
+    # config['perc_weight'] = 1
     # config['ae_learning_rate'] = 1e-2
     # config['d_learning_rate'] = 1e-2
     # config['grad_clip_max_norm'] = 1
