@@ -350,7 +350,7 @@ class AutoEncoder:
         summary(discriminator, input_shape, batch_dim=None, depth=3)
         summary(perceptual_loss, [input_shape, input_shape], batch_dim=None, depth=3)
 
-        for epoch in range(start_epoch, self.config['n_epochs']):
+        for epoch in range(start_epoch, self.config['n_epochs'] + 1):
             self.train_one_epoch(epoch, train_loader, discriminator, perceptual_loss, optimizer_g, optimizer_d, scaler_g, scaler_d)
             image, reconstruction = self.validate_one_epoch(val_loader, return_img_recon=True)
             save_all_losses(self.loss_dict, plot_save_path)

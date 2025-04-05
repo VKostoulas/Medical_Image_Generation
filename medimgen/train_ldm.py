@@ -423,7 +423,7 @@ class LDM:
         summary(self.autoencoder, ae_input_shape, batch_dim=None, depth=3)
         summary(self.ddpm, ddpm_input_shape, batch_dim=None, depth=3)
 
-        for epoch in range(start_epoch, self.config['n_epochs']):
+        for epoch in range(start_epoch, self.config['n_epochs'] + 1):
             self.train_one_epoch(epoch, train_loader, optimizer, scaler, inferer)
             self.validate_epoch(val_loader, inferer)
             save_all_losses(self.loss_dict, plot_save_path)
