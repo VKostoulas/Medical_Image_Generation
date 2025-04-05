@@ -671,7 +671,7 @@ def create_config_dict(nnunet_config_dict, input_channels, autoencoder_dict, ddp
         'd_learning_rate': 1e-4,
         'autoencoder_warm_up_epochs': 10,
         'kl_weight': 1e-8,
-        'adv_weight': 0.05,
+        'adv_weight': 0.005,
         'perc_weight': 0.025,
         'vae_params': autoencoder_dict,
         'perceptual_params': perceptual_params,
