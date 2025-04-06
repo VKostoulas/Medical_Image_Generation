@@ -616,9 +616,9 @@ def create_config_dict(nnunet_config_dict, input_channels, autoencoder_dict, ddp
         "gaussian_noise": False,  # Enable Gaussian noise
         "gaussian_blur": False,  # Enable Gaussian blur
         "low_resolution": False,
-        "brightness": False,  # Enable brightness adjustment
-        "contrast": False,  # Enable contrast adjustment
-        "gamma": False,  # Enable gamma adjustment
+        "brightness": True,  # Enable brightness adjustment
+        "contrast": True,  # Enable contrast adjustment
+        "gamma": True,  # Enable gamma adjustment
         "mirror": True,  # Enable mirroring
         "dummy_2d": False  # Enable dummy 2D mode
     }
@@ -647,13 +647,20 @@ def create_config_dict(nnunet_config_dict, input_channels, autoencoder_dict, ddp
 
     # getting together the inferred parameters from our rules and nnU-Net, and also defining some fixed parameters
     n_epochs = 400
-    # for 2d use 75% of batch size
-    batch_size = int(nnunet_config_dict['batch_size'] * 0.75) if autoencoder_dict['spatial_dims'] == 2 else nnunet_config_dict['batch_size']
+    if autoencoder_dict['spatial_dims'] == 2:
+        # for 2d use 75% of batch size for both ae and ddpm
+        ae_batch_size = int(nnunet_config_dict['batch_size'] * 0.75)
+        ddpm_batch_size = int(nnunet_config_dict['batch_size'] * 0.75)
+    else:
+        # for 3d use batch size 2 for ae and 8 for ddpm
+        ae_batch_size = nnunet_config_dict['batch_size']
+        ddpm_batch_size = ae_batch_size * 4
     config = {
         'input_channels': input_channels,
         'ae_transformations': ae_transformations,
         'ddpm_transformations': ddpm_transformations,
-        'batch_size': batch_size,
+        'ae_batch_size': ae_batch_size,
+        'ddpm_batch_size': ddpm_batch_size,
         'n_epochs': n_epochs,
         'val_plot_interval': 10,
         'grad_clip_max_norm': 1,
@@ -665,14 +672,14 @@ def create_config_dict(nnunet_config_dict, input_channels, autoencoder_dict, ddp
         'lr_scheduler': "PolynomialLR",
         'lr_scheduler_params': {'total_iters': n_epochs, 'power': 0.9},
         'time_scheduler_params': {'num_train_timesteps': 1000, 'schedule': "scaled_linear_beta", 'beta_start': 0.0015,
-                                  'beta_end': 0.0205, 'prediction_type': "v_prediction"},
-        'ae_learning_rate': 5e-5,
+                                  'beta_end': 0.0205, 'prediction_type': "epsilon"},
+        'ae_learning_rate': 1e-4,
         'weight_decay': 3e-5,
-        'd_learning_rate': 5e-5,
+        'd_learning_rate': 1e-4,
         'autoencoder_warm_up_epochs': 10,
         'kl_weight': 1e-8,
-        'adv_weight': 0.005,
-        'perc_weight': 0.025,
+        'adv_weight': 0.05,
+        'perc_weight': 0.5,
         'vae_params': autoencoder_dict,
         'perceptual_params': perceptual_params,
         'discriminator_params': discriminator_params,

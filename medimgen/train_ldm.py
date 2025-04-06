@@ -410,8 +410,8 @@ class LDM:
         inferer, z_shape = self.get_inferer_and_latent_shape(train_loader)
 
         ae_img_shape = self.config['ae_transformations']['patch_size']
-        ae_input_shape = (self.config['batch_size'], self.autoencoder.encoder.in_channels, *ae_img_shape)
-        ddpm_input_shape = [(self.config['batch_size'], *z_shape[1:]), (self.config['batch_size'],)]
+        ae_input_shape = (self.config['ddpm_batch_size'], self.autoencoder.encoder.in_channels, *ae_img_shape)
+        ddpm_input_shape = [(self.config['ddpm_batch_size'], *z_shape[1:]), (self.config['ddpm_batch_size'],)]
 
         optimizer, lr_scheduler = self.get_optimizer_and_lr_schedule()
 
@@ -546,7 +546,8 @@ def main():
     # config['grad_clip_max_norm'] = 1
 
     transformations = config['ddpm_transformations']
-    train_loader, val_loader = get_data_loaders(config, dataset_id, splitting, model_type, transformations, fold)
+    batch_size = config['ddpm_batch_size']
+    train_loader, val_loader = get_data_loaders(config, dataset_id, splitting, batch_size, model_type, transformations, fold)
 
     model = LDM(config=config, latent_space_type=latent_space_type)
     model.train(train_loader=train_loader, val_loader=val_loader)

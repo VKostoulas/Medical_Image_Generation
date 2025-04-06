@@ -333,7 +333,7 @@ class AutoEncoder:
         plot_save_path = os.path.join(self.config['results_path'], 'plots')
 
         img_shape = self.config['ae_transformations']['patch_size']
-        input_shape = (self.config['batch_size'], self.autoencoder.encoder.in_channels, *img_shape)
+        input_shape = (self.config['ae_batch_size'], self.autoencoder.encoder.in_channels, *img_shape)
 
         discriminator = PatchDiscriminator(**self.config['discriminator_params']).to(self.device)
         perceptual_loss = PerceptualLoss(**self.config['perceptual_params']).to(self.device)
@@ -552,7 +552,8 @@ def main():
 
     # config['transformations']['patch_size'] = (64, 64) # TODO: remove this
     transformations = config['ae_transformations']
-    train_loader, val_loader = get_data_loaders(config, dataset_id, splitting, model_type, transformations, fold)
+    batch_size = config['ae_batch_size']
+    train_loader, val_loader = get_data_loaders(config, dataset_id, splitting, batch_size, model_type, transformations, fold)
 
     model = AutoEncoder(config=config, latent_space_type=latent_space_type)
     model.train(train_loader=train_loader, val_loader=val_loader)
