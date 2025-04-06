@@ -239,13 +239,13 @@ class AutoEncoder:
                 # Plot the original image slice
                 slice_image = image.cpu()[0, 0, slice_idx, :, :]
                 plt.subplot(1, 2, 1)
-                plt.imshow(slice_image, cmap="gray")
+                plt.imshow(slice_image, vmin=0, vmax=1, cmap="gray")
                 plt.title("Image")
                 plt.axis("off")
                 # Plot the reconstruction slice
                 slice_reconstruction = reconstruction.cpu()[0, 0, slice_idx, :, :]
                 plt.subplot(1, 2, 2)
-                plt.imshow(slice_reconstruction, cmap="gray")
+                plt.imshow(slice_reconstruction, vmin=0, vmax=1, cmap="gray")
                 plt.title("Reconstruction")
                 plt.axis("off")
 
