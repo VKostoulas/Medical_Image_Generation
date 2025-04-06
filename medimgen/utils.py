@@ -35,12 +35,9 @@ def create_2d_image_reconstruction_plot(image_slice, reconstruction_slice, save_
     plt.title("Image")
     plt.axis("off")
 
-    # scale reconstruction to 0-1
-    normalized = (reconstruction_slice - reconstruction_slice.min()) / (reconstruction_slice.max() - reconstruction_slice.min())
-
     # Plot reconstruction
     plt.subplot(1, 2, 2)
-    plt.imshow(normalized, vmin=0, vmax=1, cmap="gray")
+    plt.imshow(reconstruction_slice, vmin=0, vmax=1, cmap="gray")
     plt.title("Reconstruction")
     plt.axis("off")
 

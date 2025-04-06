@@ -298,16 +298,12 @@ class LDM:
         os.makedirs(save_path, exist_ok=True)
 
         is_3d = len(sampled_images.shape) == 5
-        spatial_dims = tuple(range(2, sampled_images.ndim))
-        mins = sampled_images.amin(dim=spatial_dims, keepdim=True)
-        maxs = sampled_images.amax(dim=spatial_dims, keepdim=True)
-        normalized = (sampled_images - mins) / (maxs - mins)
 
         if is_3d:
             # 3D case: assume shape (N, C, D, H, W)
             plot_save_path = os.path.join(save_path, f'{plot_name}.gif')
-            num_volumes = min(normalized.shape[0], 2)
-            num_slices = normalized.shape[2]
+            num_volumes = min(sampled_images.shape[0], 2)
+            num_slices = sampled_images.shape[2]
             gif_images = []
 
             # Loop over all slices in the depth dimension
@@ -319,7 +315,7 @@ class LDM:
                 # For each volume (up to 2), plot the corresponding slice
                 for vol_idx in range(num_volumes):
                     # Extract the slice for the given volume (assumes single channel)
-                    slice_image = normalized.cpu()[vol_idx, 0, slice_idx, :, :]
+                    slice_image = sampled_images.cpu()[vol_idx, 0, slice_idx, :, :]
                     axes[vol_idx].imshow(slice_image, vmin=0, vmax=1, cmap="gray")
                     axes[vol_idx].axis("off")
 
@@ -336,8 +332,8 @@ class LDM:
 
         else:
             # 2D case: assume shape (N, C, H, W)
-            num_images = min(normalized.shape[0], 16)
-            selected_images = normalized.cpu()[:num_images, 0, :, :]  # take the first channel
+            num_images = min(sampled_images.shape[0], 16)
+            selected_images = sampled_images.cpu()[:num_images, 0, :, :]  # take the first channel
             columns = min(4, num_images)
             rows = (num_images + columns - 1) // columns
 
