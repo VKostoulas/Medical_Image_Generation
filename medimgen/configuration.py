@@ -665,7 +665,7 @@ def create_config_dict(nnunet_config_dict, input_channels, autoencoder_dict, ddp
         'val_plot_interval': 10,
         'grad_clip_max_norm': 1,
         'grad_accumulate_step': 1,
-        'oversample_ratio': 1.0,
+        'oversample_ratio': 0.66,
         'num_workers': 8,
         # 'lr_scheduler': "LinearLR",
         # 'lr_scheduler_params': {'start_factor': 1.0, 'end_factor': 0.0001, 'total_iters': int(n_epochs*0.9)},

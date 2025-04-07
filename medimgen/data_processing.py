@@ -189,7 +189,7 @@ class MedicalDataset(Dataset):
 
         self.patch_size = transformation_args["patch_size"]
 
-        rot_for_da, do_dummy_2d, initial_patch_size, mirror_axes = self.configure_rotation_dummyDA_mirroring_and_initial_patch_size()
+        rot_for_da, do_dummy_2d, initial_patch_size, mirror_axes = self.configure_rotation_dummyDA_mirroring_and_initial_patch_size(heavy_augmentation=False)
         self.initial_patch_size = initial_patch_size if section == 'training' else self.patch_size
 
         if transformation_args['rotation']:
@@ -259,7 +259,7 @@ class MedicalDataset(Dataset):
         return final_shape.astype(int)
 
     # from nnunet
-    def configure_rotation_dummyDA_mirroring_and_initial_patch_size(self):
+    def configure_rotation_dummyDA_mirroring_and_initial_patch_size(self, heavy_augmentation=False):
         """
         Configures rotation-based data augmentation, determines if 2D augmentation is needed,
         and computes the initial patch size to accommodate transformations.
@@ -267,26 +267,34 @@ class MedicalDataset(Dataset):
         anisotropy_threshold = 3
         dim = len(self.patch_size)
 
-        if dim == 2:
-            do_dummy_2d_data_aug = False
-            rotation_for_DA = (-np.pi * 15 / 180, np.pi * 15 / 180) if max(self.patch_size) / min(self.patch_size) > 1.5 else (-np.pi, np.pi)
-            mirror_axes = (0, 1)
-        elif dim == 3:
-            # Determine if 2D augmentation should be used (for highly anisotropic data)
-            do_dummy_2d_data_aug = (max(self.patch_size) / self.patch_size[0]) > anisotropy_threshold
-            # Set rotation ranges based on augmentation type
-            rotation_for_DA = (-np.pi, np.pi) if do_dummy_2d_data_aug else (-np.pi * 30 / 180, np.pi * 30 / 180)
-            mirror_axes = (0, 1, 2)
+        if heavy_augmentation:
+
+            if dim == 2:
+                do_dummy_2d_data_aug = False
+                rotation_for_DA = (-np.pi * 15 / 180, np.pi * 15 / 180) if max(self.patch_size) / min(self.patch_size) > 1.5 else (-np.pi, np.pi)
+                mirror_axes = (0, 1)
+            elif dim == 3:
+                # Determine if 2D augmentation should be used (for highly anisotropic data)
+                do_dummy_2d_data_aug = (max(self.patch_size) / self.patch_size[0]) > anisotropy_threshold
+                # Set rotation ranges based on augmentation type
+                rotation_for_DA = (-np.pi, np.pi) if do_dummy_2d_data_aug else (-np.pi * 30 / 180, np.pi * 30 / 180)
+                mirror_axes = (0, 1, 2)
+            else:
+                raise ValueError("Invalid patch size dimensionality. Must be 2D or 3D.")
+
+            # Compute the initial patch size, adjusting for rotation and scaling
+            initial_patch_size = self.get_initial_patch_size(rot_x=rotation_for_DA, rot_y=rotation_for_DA,
+                                                             rot_z=rotation_for_DA, scale_range=(0.85, 1.25)) # Standard scale range used in nnU-Net
+
+            # If using 2D augmentation, force the depth dimension to remain unchanged
+            if do_dummy_2d_data_aug:
+                initial_patch_size[0] = self.patch_size[0]
+
         else:
-            raise ValueError("Invalid patch size dimensionality. Must be 2D or 3D.")
-
-        # Compute the initial patch size, adjusting for rotation and scaling
-        initial_patch_size = self.get_initial_patch_size(rot_x=rotation_for_DA, rot_y=rotation_for_DA,
-                                                         rot_z=rotation_for_DA, scale_range=(0.85, 1.25)) # Standard scale range used in nnU-Net
-
-        # If using 2D augmentation, force the depth dimension to remain unchanged
-        if do_dummy_2d_data_aug:
-            initial_patch_size[0] = self.patch_size[0]
+            rotation_for_DA = (-0.174533, 0.174533)
+            do_dummy_2d_data_aug = False
+            initial_patch_size = self.patch_size
+            mirror_axes = (2,) if dim == 3 else (1,)
 
         return rotation_for_DA, do_dummy_2d_data_aug, tuple(initial_patch_size), mirror_axes
 
