@@ -31,13 +31,13 @@ def create_2d_image_reconstruction_plot(image_slice, reconstruction_slice, save_
 
     # Plot original image
     plt.subplot(1, 2, 1)
-    plt.imshow(image_slice, vmin=0, vmax=1, cmap="gray")
+    plt.imshow(image_slice, cmap="gray")
     plt.title("Image")
     plt.axis("off")
 
     # Plot reconstruction
     plt.subplot(1, 2, 2)
-    plt.imshow(reconstruction_slice, vmin=0, vmax=1, cmap="gray")
+    plt.imshow(reconstruction_slice, cmap="gray")
     plt.title("Reconstruction")
     plt.axis("off")
 
@@ -120,7 +120,7 @@ def save_all_losses(loss_dict, save_path):
 
     for key in mapping_names_dict:
         if key in loss_dict.keys():
-            plt.plot(epochs, loss_dict[key], label=mapping_names_dict[key], marker='o', linestyle='-')
+            plt.plot(epochs, loss_dict[key], label=mapping_names_dict[key], linestyle='-')
 
     plt.yscale('log')
     plt.xlabel("Epoch")

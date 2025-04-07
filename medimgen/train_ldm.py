@@ -259,7 +259,6 @@ class LDM:
                                             autoencoder_model=self.autoencoder, scheduler=self.scheduler,
                                             verbose=verbose)
                     # image = self.autoencoder.decode_stage_2_outputs(generated_latents)
-                images = torch.sigmoid(images)
         return images
 
     # def save_plots(self, sampled_images, plot_name):
@@ -317,7 +316,7 @@ class LDM:
                 for vol_idx in range(num_volumes):
                     # Extract the slice for the given volume (assumes single channel)
                     slice_image = sampled_images.cpu()[vol_idx, 0, slice_idx, :, :]
-                    axes[vol_idx].imshow(slice_image, vmin=0, vmax=1, cmap="gray")
+                    axes[vol_idx].imshow(slice_image, cmap="gray")
                     axes[vol_idx].axis("off")
 
                 plt.tight_layout(pad=0)
@@ -349,7 +348,7 @@ class LDM:
             for idx in range(rows * columns):
                 ax = axes[idx]
                 if idx < num_images:
-                    ax.imshow(selected_images[idx], vmin=0, vmax=1, cmap="gray")
+                    ax.imshow(selected_images[idx], cmap="gray")
                     ax.axis("off")
                 else:
                     ax.axis("off")  # Hide unused subplots

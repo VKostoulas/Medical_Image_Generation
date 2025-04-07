@@ -150,7 +150,6 @@ class AutoEncoder:
                 reconstructions, z_mu, z_sigma = self.autoencoder(images)
                 step_loss_dict['reg_loss'] = self.get_kl_loss(z_mu, z_sigma) * self.config['kl_weight']
 
-            reconstructions = torch.sigmoid(reconstructions)
             step_loss_dict['rec_loss'] = self.l1_loss(reconstructions.float(), images.float())
             step_loss_dict['perc_loss'] = perceptual_loss(reconstructions.float(), images.float()) * self.config['perc_weight']
             loss_g = step_loss_dict['rec_loss'] + step_loss_dict['perc_loss'] + step_loss_dict['reg_loss']
@@ -187,7 +186,6 @@ class AutoEncoder:
                 with torch.no_grad():
                     with autocast(enabled=True):
                         reconstructions, *_ = self.autoencoder(images)
-                        reconstructions = torch.sigmoid(reconstructions)
                         recons_loss = self.l1_loss(reconstructions.float(), images.float())
 
                 val_epoch_loss += recons_loss.item()
@@ -241,13 +239,13 @@ class AutoEncoder:
                 # Plot the original image slice
                 slice_image = image.cpu()[0, 0, slice_idx, :, :]
                 plt.subplot(1, 2, 1)
-                plt.imshow(slice_image, vmin=0, vmax=1, cmap="gray")
+                plt.imshow(slice_image, cmap="gray")
                 plt.title("Image")
                 plt.axis("off")
                 # Plot the reconstruction slice
                 slice_reconstruction = reconstruction.cpu()[0, 0, slice_idx, :, :]
                 plt.subplot(1, 2, 2)
-                plt.imshow(slice_reconstruction, vmin=0, vmax=1, cmap="gray")
+                plt.imshow(slice_reconstruction, cmap="gray")
                 plt.title("Reconstruction")
                 plt.axis("off")
 
