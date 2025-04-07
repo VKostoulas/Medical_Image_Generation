@@ -646,15 +646,15 @@ def create_config_dict(nnunet_config_dict, input_channels, autoencoder_dict, ddp
                             'out_channels': 1, 'num_channels': features_per_stage[0] * 2, 'num_layers_d': 3}
 
     # getting together the inferred parameters from our rules and nnU-Net, and also defining some fixed parameters
-    n_epochs = 400
+    n_epochs = 200
     if autoencoder_dict['spatial_dims'] == 2:
         # for 2d use 75% of batch size for both ae and ddpm
         ae_batch_size = int(nnunet_config_dict['batch_size'] * 0.75)
         ddpm_batch_size = int(nnunet_config_dict['batch_size'] * 0.75)
     else:
-        # for 3d use batch size 2 for ae and 8 for ddpm
+        # for 3d use batch size 2 for ae and 4 for ddpm
         ae_batch_size = nnunet_config_dict['batch_size']
-        ddpm_batch_size = ae_batch_size * 4
+        ddpm_batch_size = ae_batch_size * 2
     config = {
         'input_channels': input_channels,
         'ae_transformations': ae_transformations,

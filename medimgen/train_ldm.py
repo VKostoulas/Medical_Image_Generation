@@ -259,6 +259,7 @@ class LDM:
                                             autoencoder_model=self.autoencoder, scheduler=self.scheduler,
                                             verbose=verbose)
                     # image = self.autoencoder.decode_stage_2_outputs(generated_latents)
+                images = torch.sigmoid(images)
         return images
 
     # def save_plots(self, sampled_images, plot_name):
