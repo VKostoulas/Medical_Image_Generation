@@ -96,6 +96,8 @@ def get_data_ids(split_file_path, fold=None):
         train_ids = split_data['train']
         val_ids = split_data['val']
 
+    print(f"{len(train_ids)} patients for training")
+    print(f"{len(val_ids)} patients for validation")
     return {"train": train_ids, "val": val_ids}
 
 

@@ -106,7 +106,7 @@ def save_main_losses(epoch_loss_list, val_epoch_loss_list, save_path):
     # print(f"Loss plot saved at {save_path}")
 
 
-def save_all_losses(loss_dict, save_path):
+def save_all_losses(loss_dict, save_path, log_scale=True):
     os.makedirs(save_path, exist_ok=True)
     save_plot_path = os.path.join(save_path, f"loss.png")
 
@@ -122,9 +122,12 @@ def save_all_losses(loss_dict, save_path):
         if key in loss_dict.keys():
             plt.plot(epochs, loss_dict[key], label=mapping_names_dict[key], linestyle='-')
 
-    plt.yscale('log')
+    if log_scale:
+        plt.yscale('log')
+        plt.ylabel("log(loss)")
+    else:
+        plt.ylabel("loss")
     plt.xlabel("Epoch")
-    plt.ylabel("log(loss)")
     plt.title("Losses per Epoch")
     plt.legend()
     plt.grid(True)
