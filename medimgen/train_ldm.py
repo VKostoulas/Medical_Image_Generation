@@ -426,7 +426,7 @@ class LDM:
         for epoch in range(start_epoch, self.config['n_epochs'] + 1):
             self.train_one_epoch(epoch, train_loader, optimizer, scaler, inferer)
             self.validate_epoch(val_loader, inferer)
-            save_all_losses(self.loss_dict, plot_save_path)
+            save_all_losses(self.loss_dict, plot_save_path, log_scale=False)
             self.save_model(epoch, self.loss_dict['val_rec_loss'][-1], optimizer, lr_scheduler)
 
             loss_pickle_path = os.path.join("/".join(plot_save_path.split('/')[:-1]), 'loss_dict.pkl')
