@@ -10,6 +10,8 @@ import time
 import glob
 import traceback
 import pickle
+import tempfile
+import shutil
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
@@ -17,21 +19,23 @@ import torch
 import torch.nn.functional as F
 
 from torch.cuda.amp import GradScaler, autocast
+from itertools import combinations, cycle
 from tqdm import tqdm
 from io import BytesIO
 from PIL import Image
 from torchinfo import summary
 from monai.utils import set_determinism
 from generative.inferers import DiffusionInferer, LatentDiffusionInferer
-# from generative.networks.nets import DiffusionModelUNet
 from generative.networks.schedulers import DDPMScheduler
 from generative.networks.nets import VQVAE
+from generative.losses.perceptual import medicalnet_intensity_normalisation
+from generative.metrics import FIDMetric, MMDMetric, SSIMMetric, MultiScaleSSIMMetric
 
 from medimgen.data_processing import get_data_loaders
 from medimgen.configuration import load_config
 from medimgen.autoencoderkl_with_strides import AutoencoderKL
 from medimgen.diffusion_model_unet_with_strides import DiffusionModelUNet
-from medimgen.utils import create_gif_from_images, save_all_losses, create_2d_image_plot
+from medimgen.utils import create_gif_from_images, save_all_losses
 
 
 class LDM:
@@ -233,15 +237,109 @@ class LDM:
 
         self.loss_dict['val_rec_loss'].append(val_epoch_loss / len(val_loader))
 
-    def sample_images(self, z_shape, inferer, verbose=False, seed=None):
+    @staticmethod
+    def get_perceptual_features(image, spatial_dims, perceptual_net):
+        if spatial_dims == 2:
+            # If input has just 1 channel, repeat channel to have 3 channels
+            if image.shape[1]:
+                image = image.repeat(1, 3, 1, 1)
+            # Change order from 'RGB' to 'BGR'
+            image = image[:, [2, 1, 0], ...]
+            # Subtract mean used during training
+            mean = [0.406, 0.456, 0.485]
+            image[:, 0, :, :] -= mean[0]
+            image[:, 1, :, :] -= mean[1]
+            image[:, 2, :, :] -= mean[2]
+            # Get model outputs
+            with torch.no_grad():
+                feature_image = perceptual_net.forward(image)
+                # flattens the image spatially
+                feature_image = feature_image.mean([2, 3], keepdim=False)
+        else:
+            image = medicalnet_intensity_normalisation(image)
+            feature_image = perceptual_net.forward(image)
+            feature_image = feature_image.mean([2, 3, 4], keepdim=False)
+
+        return feature_image
+
+    def validate_main(self, val_loader, z_shape, inferer, verbose, n_sampled_images, sampling_batch_size):
+        spatial_dims = self.autoencoder.encoder.spatial_dims
+        start = time.time()
+
+        if spatial_dims == 2:
+            perceptual_net = torch.hub.load("Warvito/radimagenet-models", model='radimagenet_resnet50', verbose=verbose).to(self.device)
+        else:
+            perceptual_net = torch.hub.load("Warvito/MedicalNet-models", model='medicalnet_resnet50_23datasets', verbose=verbose).to(self.device)
+        perceptual_net.eval()
+
+        ms_ssim = MultiScaleSSIMMetric(spatial_dims=spatial_dims, data_range=1.0, kernel_size=4)
+        ssim = SSIMMetric(spatial_dims=spatial_dims, data_range=1.0, kernel_size=4)
+
+        # Collect real features
+        total_real_count = 0
+        real_features = []
+        val_iter = cycle(val_loader)
+        while total_real_count < n_sampled_images:
+            batch = next(val_iter)
+            real_images = batch["image"].to(self.device)
+            with torch.no_grad():
+                real_eval_feats = self.get_perceptual_features(real_images, spatial_dims, perceptual_net)
+            real_features.append(real_eval_feats)
+            total_real_count += real_eval_feats.shape[0]
+        real_features = torch.vstack(real_features)[:n_sampled_images]
+
+        # Collect synthetic images and features
+        total_synth_count = 0
+        synth_features = []
+        synth_images = []
+        synth_z_shape = (sampling_batch_size,) + z_shape[1:]
+        while total_synth_count < n_sampled_images:
+            with torch.no_grad():
+                with autocast(enabled=True):
+                    temp_synth_images = self.sample_images(synth_z_shape, inferer, verbose, limited_samples=False)
+                    synth_eval_feats = self.get_perceptual_features(temp_synth_images, spatial_dims, perceptual_net)
+            synth_features.append(synth_eval_feats)
+            synth_images.append(temp_synth_images)
+            total_synth_count += synth_eval_feats.shape[0]
+        synth_features = torch.vstack(synth_features)[:n_sampled_images]
+        synth_images = torch.vstack(synth_images)[:n_sampled_images]
+
+        # Compute FID
+        fid = FIDMetric()
+        fid_res = fid(synth_features, real_features)
+
+        # Compute pairwise SSIM and MSSIM for synthetic images
+        ms_ssim_scores = []
+        ssim_scores = []
+        idx_pairs = list(combinations(range(synth_images.shape[0]), 2))
+        for idx_a, idx_b in idx_pairs:
+            ms_ssim_val = ms_ssim(synth_images[[idx_a]], synth_images[[idx_b]])
+            ssim_val = ssim(synth_images[[idx_a]], synth_images[[idx_b]])
+            ms_ssim_scores.append(ms_ssim_val)
+            ssim_scores.append(ssim_val)
+        ms_ssim_scores = torch.cat(ms_ssim_scores, dim=0)
+        ssim_scores = torch.cat(ssim_scores, dim=0)
+
+        end = time.time() - start
+        print(f"Time: {time.strftime('%H:%M:%S', time.gmtime(end))} - "
+              f"FID: {fid_res.item():.4f} - "
+              f"MS-SSIM: {ms_ssim_scores.mean():.4f} +- {ms_ssim_scores.std():.4f} - "
+              f"SSIM: {ssim_scores.mean():.4f} +- {ssim_scores.std():.4f}")
+
+        del perceptual_net, real_features, synth_images, synth_features
+
+    def sample_images(self, z_shape, inferer, verbose=False, seed=None, limited_samples=True):
         self.ddpm.eval()
         self.autoencoder.eval()
         if seed:
             # set seed for reproducible sampling
             torch.manual_seed(seed)
-        # sample a maximum of 16 images for 2D, 2 for 3D
-        max_n_samples = 16 if self.config['ddpm_params']['spatial_dims'] == 2 else 2
-        input_shape = [min(z_shape[0], max_n_samples), *z_shape[1:]]
+        if limited_samples:
+            # sample a maximum of 16 images for 2D, 2 for 3D
+            max_n_samples = 16 if self.config['ddpm_params']['spatial_dims'] == 2 else 2
+            input_shape = [min(z_shape[0], max_n_samples), *z_shape[1:]]
+        else:
+            input_shape = z_shape
         input_noise = torch.randn(*input_shape).to(self.device)
 
         self.scheduler.set_timesteps(num_inference_steps=self.config['time_scheduler_params']['num_train_timesteps'])
@@ -406,6 +504,8 @@ class LDM:
         start_epoch = 0
         sample_seed = 42
         plot_save_path = os.path.join(self.config['results_path'], 'plots')
+        sampling_batch_size = 50 if self.autoencoder.encoder.spatial_dims == 2 else 8
+        n_sampled_images = 100 if self.autoencoder.encoder.spatial_dims == 2 else 40
 
         inferer, z_shape = self.get_inferer_and_latent_shape(train_loader)
 
@@ -437,6 +537,8 @@ class LDM:
                 sample_verbose = not (self.config['output_mode'] == 'log' or not self.config['progress_bar'])
                 sampled_images = self.sample_images(z_shape, inferer, sample_verbose, seed=sample_seed)
                 self.save_plots(sampled_images, plot_name=f"epoch_{epoch}")
+                self.validate_main(val_loader, z_shape, inferer, sample_verbose,
+                                   n_sampled_images=n_sampled_images, sampling_batch_size=sampling_batch_size)
 
             if lr_scheduler:
                 lr_scheduler.step()
@@ -446,6 +548,11 @@ class LDM:
         print(f"Training completed in {total_time:.2f} seconds.")
 
     def train(self, train_loader, val_loader):
+        temp_dir = tempfile.mkdtemp()
+        print(f"Using temp directory: {temp_dir}")
+        os.environ["TMPDIR"] = temp_dir
+        tempfile.tempdir = temp_dir
+
         # unpack .npz files to .npy
         train_loader.dataset.unpack_dataset()
 
@@ -461,6 +568,8 @@ class LDM:
             not_clean = True
             while not_clean:
                 try:
+                    shutil.rmtree(temp_dir)
+                    print(f"Temp directory {temp_dir} removed.")
                     train_loader.dataset.pack_dataset()
                     not_clean = False
                 except BaseException:

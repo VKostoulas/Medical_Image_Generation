@@ -27,7 +27,8 @@ dependencies = [
     "torchinfo",
     "lpips",
     "blosc2",
-    "xformers"
+    "xformers",
+    "gdown"
 ]
 
 [project.scripts]
