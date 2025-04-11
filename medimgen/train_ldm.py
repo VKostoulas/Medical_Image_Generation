@@ -331,16 +331,19 @@ class LDM:
     def sample_images(self, z_shape, inferer, verbose=False, seed=None, limited_samples=True):
         self.ddpm.eval()
         self.autoencoder.eval()
-        if seed:
-            # set seed for reproducible sampling
-            torch.manual_seed(seed)
+
         if limited_samples:
             # sample a maximum of 16 images for 2D, 2 for 3D
             max_n_samples = 16 if self.config['ddpm_params']['spatial_dims'] == 2 else 2
             input_shape = [min(z_shape[0], max_n_samples), *z_shape[1:]]
         else:
             input_shape = z_shape
-        input_noise = torch.randn(*input_shape).to(self.device)
+
+        if seed:
+            # set seed for reproducible sampling
+            with torch.random.fork_rng():
+                torch.manual_seed(seed)
+                input_noise = torch.randn(*input_shape).to(self.device)
 
         self.scheduler.set_timesteps(num_inference_steps=self.config['time_scheduler_params']['num_train_timesteps'])
 
