@@ -344,6 +344,8 @@ class LDM:
             with torch.random.fork_rng():
                 torch.manual_seed(seed)
                 input_noise = torch.randn(*input_shape).to(self.device)
+        else:
+            input_noise = torch.randn(*input_shape).to(self.device)
 
         self.scheduler.set_timesteps(num_inference_steps=self.config['time_scheduler_params']['num_train_timesteps'])
 
