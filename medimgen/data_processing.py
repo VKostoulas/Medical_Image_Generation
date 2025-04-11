@@ -191,14 +191,14 @@ class MedicalDataset(Dataset):
 
         self.patch_size = transformation_args["patch_size"]
 
-        rot_for_da, do_dummy_2d, initial_patch_size, mirror_axes = self.configure_rotation_dummyDA_mirroring_and_initial_patch_size(heavy_augmentation=False)
+        augmentation_params = self.configure_augmentation_params(heavy_augmentation=False)
+        rot_for_da, do_dummy_2d, initial_patch_size, mirror_axes, scale_range = augmentation_params
         self.initial_patch_size = initial_patch_size if section == 'training' else self.patch_size
 
-        if transformation_args['rotation']:
-            self.transformation_args['rot_for_da'] = rot_for_da
-        if transformation_args['dummy_2d']:
-            self.transformation_args['dummy_2d'] = do_dummy_2d
+        self.transformation_args['rot_for_da'] = rot_for_da if transformation_args['rotation'] else None
+        self.transformation_args['dummy_2d'] = do_dummy_2d if transformation_args['dummy_2d'] else None
         self.transformation_args['mirror_axes'] = mirror_axes if transformation_args['mirror'] else None
+        self.transformation_args['scaling_range'] = scale_range if transformation_args['scaling'] else None
 
         # If we get a 2D patch size, make it pseudo 3D and remember to remove the singleton dimension before
         # returning the batch
@@ -261,7 +261,7 @@ class MedicalDataset(Dataset):
         return final_shape.astype(int)
 
     # from nnunet
-    def configure_rotation_dummyDA_mirroring_and_initial_patch_size(self, heavy_augmentation=False):
+    def configure_augmentation_params(self, heavy_augmentation=False):
         """
         Configures rotation-based data augmentation, determines if 2D augmentation is needed,
         and computes the initial patch size to accommodate transformations.
@@ -286,19 +286,22 @@ class MedicalDataset(Dataset):
 
             # Compute the initial patch size, adjusting for rotation and scaling
             initial_patch_size = self.get_initial_patch_size(rot_x=rotation_for_DA, rot_y=rotation_for_DA,
-                                                             rot_z=rotation_for_DA, scale_range=(0.85, 1.25)) # Standard scale range used in nnU-Net
+                                                             rot_z=rotation_for_DA, scale_range=(0.7, 1.4)) # Standard scale range used in nnU-Net
 
             # If using 2D augmentation, force the depth dimension to remain unchanged
             if do_dummy_2d_data_aug:
                 initial_patch_size[0] = self.patch_size[0]
+
+            scale_range = (0.7, 1.4)
 
         else:
             rotation_for_DA = (-0.174533, 0.174533)
             do_dummy_2d_data_aug = False
             initial_patch_size = self.patch_size
             mirror_axes = (2,) if dim == 3 else (1,)
+            scale_range = (0.85, 1.25)
 
-        return rotation_for_DA, do_dummy_2d_data_aug, tuple(initial_patch_size), mirror_axes
+        return rotation_for_DA, do_dummy_2d_data_aug, tuple(initial_patch_size), mirror_axes, scale_range
 
     # from nnunet
     def _oversample_last_XX_percent(self, sample_idx: int) -> bool:
@@ -560,7 +563,7 @@ def define_nnunet_transformations(params, validation=False):
         p_rotation = 0.2 if params['rotation'] else 0
         rotation = params['rot_for_da'] if params['rotation'] else None
         p_scaling = 0.2 if params['scaling'] else 0
-        scaling = (0.7, 1.4) if params['scaling'] else None
+        scaling = params['scaling_range'] if params['scaling'] else None
         p_synchronize_scaling_across_axes = 1 if params['scaling'] else None
 
         if params['dummy_2d']:
