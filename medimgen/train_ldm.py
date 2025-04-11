@@ -537,8 +537,10 @@ class LDM:
                 sample_verbose = not (self.config['output_mode'] == 'log' or not self.config['progress_bar'])
                 sampled_images = self.sample_images(z_shape, inferer, sample_verbose, seed=sample_seed)
                 self.save_plots(sampled_images, plot_name=f"epoch_{epoch}")
-                self.validate_main(val_loader, z_shape, inferer, sample_verbose,
-                                   n_sampled_images=n_sampled_images, sampling_batch_size=sampling_batch_size)
+                # for now validate only in 2D
+                if self.autoencoder.encoder.spatial_dims == 2:
+                    self.validate_main(val_loader, z_shape, inferer, sample_verbose,
+                                       n_sampled_images=n_sampled_images, sampling_batch_size=sampling_batch_size)
 
             if lr_scheduler:
                 lr_scheduler.step()
