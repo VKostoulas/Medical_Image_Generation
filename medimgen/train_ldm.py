@@ -504,7 +504,7 @@ class LDM:
         start_epoch = 0
         sample_seed = 42
         plot_save_path = os.path.join(self.config['results_path'], 'plots')
-        sampling_batch_size = 50 if self.autoencoder.encoder.spatial_dims == 2 else 8
+        sampling_batch_size = 50 if self.autoencoder.encoder.spatial_dims == 2 else 4
         n_sampled_images = 100 if self.autoencoder.encoder.spatial_dims == 2 else 40
 
         inferer, z_shape = self.get_inferer_and_latent_shape(train_loader)
