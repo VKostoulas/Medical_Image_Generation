@@ -12,6 +12,7 @@ import time
 import pickle
 import traceback
 import argparse
+import numpy as np
 import matplotlib.pyplot as plt
 
 from io import BytesIO
@@ -68,12 +69,22 @@ class AutoEncoder:
         kl_loss = torch.sum(kl_loss, dim=spatial_dims)
         return torch.sum(kl_loss) / kl_loss.shape[0]
 
+    def get_kl_loss_weight(self, epoch, min_weight=1e-11, max_weight=1e-2):
+        t = np.arange(self.config['n_epochs'] + 1)
+        base_schedule = 1 - 0.5 * (1 + np.cos(np.pi * t / (self.config['n_epochs'] + 1)))
+        scaled_schedule = min_weight * (max_weight / min_weight) ** base_schedule
+        kl_loss_weight = scaled_schedule[epoch]
+        return kl_loss_weight
+
     def train_one_epoch(self, epoch, train_loader, discriminator, perceptual_loss, optimizer_g, optimizer_d, scaler_g,
                         scaler_d):
         self.autoencoder.train()
         discriminator.train()
         epoch_loss_dict = {'rec_loss': 0, 'reg_loss': 0, 'gen_loss': 0, 'disc_loss': 0, 'perc_loss': 0}
         disable_prog_bar = self.config['output_mode'] == 'log' or not self.config['progress_bar']
+        # anneal kl loss weight from min weight to max weight with a scaled cosine schedule
+        self.config['kl_weight'] = self.get_kl_loss_weight(epoch)
+        print(f"KL loss weight: {self.config['kl_weight']}")
         start = time.time()
 
         with tqdm(enumerate(train_loader), total=len(train_loader), ncols=150, disable=disable_prog_bar, file=sys.stdout) as progress_bar:
@@ -276,7 +287,7 @@ class AutoEncoder:
 
         last_checkpoint_path = os.path.join(save_path, 'last_model.pth')
         checkpoint = {
-            'epoch': epoch + 1,
+            'epoch': epoch,
             'network_state_dict': self.autoencoder.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'validation_loss': validation_loss
@@ -329,7 +340,7 @@ class AutoEncoder:
         scaler_g = GradScaler()
         scaler_d = GradScaler()
         total_start = time.time()
-        start_epoch = 0
+        start_epoch = 1
         plot_save_path = os.path.join(self.config['results_path'], 'plots')
 
         img_shape = self.config['ae_transformations']['patch_size']

@@ -470,7 +470,7 @@ class LDM:
 
         last_checkpoint_path = os.path.join(save_path, 'last_model.pth')
         checkpoint = {
-            'epoch': epoch + 1,
+            'epoch': epoch,
             'network_state_dict': self.ddpm.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'validation_loss': validation_loss
@@ -507,7 +507,7 @@ class LDM:
     def train_main(self, train_loader, val_loader):
         scaler = GradScaler()
         total_start = time.time()
-        start_epoch = 0
+        start_epoch = 1
         sample_seed = 42
         plot_save_path = os.path.join(self.config['results_path'], 'plots')
         sampling_batch_size = 50 if self.autoencoder.encoder.spatial_dims == 2 else 4
