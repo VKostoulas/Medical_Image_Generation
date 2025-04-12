@@ -514,9 +514,11 @@ def validate_channels(value):
 
 def create_autoencoder_dict(nnunet_config_dict, input_channels, spatial_dims):
 
-    features_per_stage = nnunet_config_dict['architecture']['arch_kwargs']['features_per_stage']
+    # features_per_stage = nnunet_config_dict['architecture']['arch_kwargs']['features_per_stage']
     kernel_sizes = nnunet_config_dict['architecture']['arch_kwargs']['kernel_sizes']
     strides = nnunet_config_dict['architecture']['arch_kwargs']['strides']
+
+    base_autoencoder_channels = [32, 64, 128, 128]
 
     vae_dict = {'spatial_dims': spatial_dims,
                 'in_channels': len(input_channels),
@@ -542,16 +544,19 @@ def create_autoencoder_dict(nnunet_config_dict, input_channels, spatial_dims):
     # when 2 layers are more than needed? when latent size after 1 downsamplings is <= 32 --> patch_size <= 64
     # for max image size 100, 2 ae layers --> latent size 25 --> good
     # for max image size 64, 1 ae layer --> latent size 32 --> good
-    if np.max(nnunet_config_dict['patch_size']) <= 64:
+    if np.max(nnunet_config_dict['patch_size']) <= 32:
         vae_n_layers = 1
-    elif np.max(nnunet_config_dict['patch_size']) <= 256:
+    elif np.max(nnunet_config_dict['patch_size']) <= 128:
         vae_n_layers = 2
     else:
         vae_n_layers = 3
 
-    vae_dict['num_channels'] = features_per_stage[:vae_n_layers+1]
+    # vae_dict['num_channels'] = features_per_stage[:vae_n_layers+1]
+    # vae_dict['attention_levels'] = [False] * (vae_n_layers+1)
+    # vae_dict['norm_num_groups'] = vae_dict['num_channels'][0]
+    vae_dict['num_channels'] = base_autoencoder_channels[:vae_n_layers+1]
     vae_dict['attention_levels'] = [False] * (vae_n_layers+1)
-    vae_dict['norm_num_groups'] = vae_dict['num_channels'][0]
+    vae_dict['norm_num_groups'] = 16
 
     # nnunet gives you the parameters of the first conv block and then all the downsample parameters
     # For the autoencoder we pass these directly but for the ddpm things are a bit different (see create_ddpm_dict)
@@ -565,7 +570,7 @@ def create_autoencoder_dict(nnunet_config_dict, input_channels, spatial_dims):
 
 def create_ddpm_dict(nnunet_config_dict, spatial_dims):
 
-    features_per_stage = nnunet_config_dict['architecture']['arch_kwargs']['features_per_stage']
+    # features_per_stage = nnunet_config_dict['architecture']['arch_kwargs']['features_per_stage']
     kernel_sizes = nnunet_config_dict['architecture']['arch_kwargs']['kernel_sizes']
     strides = nnunet_config_dict['architecture']['arch_kwargs']['strides']
 
@@ -577,29 +582,32 @@ def create_ddpm_dict(nnunet_config_dict, spatial_dims):
                 }
 
     # check create_autoencoder_dict
-    if np.max(nnunet_config_dict['patch_size']) <= 64:
+    if np.max(nnunet_config_dict['patch_size']) <= 32:
         vae_n_layers = 1
-    elif np.max(nnunet_config_dict['patch_size']) <= 256:
+    elif np.max(nnunet_config_dict['patch_size']) <= 128:
         vae_n_layers = 2
     else:
         vae_n_layers = 3
 
-    ddpm_dict['num_channels'] = features_per_stage[vae_n_layers:]
-    if len(ddpm_dict['num_channels']) < 2:
-        raise ValueError("The number of stages must be at least 2.")
-    # First 2 stages without attention, then attention for the rest
-    ddpm_dict['attention_levels'] = [False, False] + [True] * (len(ddpm_dict['num_channels']) - 2)
+    # ddpm_dict['num_channels'] = features_per_stage[vae_n_layers:]
+    # if len(ddpm_dict['num_channels']) < 2:
+    #     raise ValueError("The number of stages must be at least 2.")
+    # # First 2 stages without attention, then attention for the rest
+    # ddpm_dict['attention_levels'] = [False, False] + [True] * (len(ddpm_dict['num_channels']) - 2)
+    ddpm_dict['num_channels'] = [128, 256, 512]
+    ddpm_dict['attention_levels'] = [False, True, True]
+    ddpm_dict['num_head_channels'] = [0, 256, 512]
 
-    if len(ddpm_dict['num_channels']) != len(ddpm_dict['attention_levels']):
-        raise ValueError("num_channels and attention_levels must be of the same length.")
-    ddpm_dict['num_head_channels'] = [channel if use_attention else 0
-                                         for channel, use_attention in zip(ddpm_dict['num_channels'], ddpm_dict['attention_levels'])]
+    # if len(ddpm_dict['num_channels']) != len(ddpm_dict['attention_levels']):
+    #     raise ValueError("num_channels and attention_levels must be of the same length.")
+    # ddpm_dict['num_head_channels'] = [channel if use_attention else 0
+    #                                      for channel, use_attention in zip(ddpm_dict['num_channels'], ddpm_dict['attention_levels'])]
 
     # Now the remaining conv parameters from nnunet do not involve the first conv block of the ddpm unet
     # For the first layer of the ddpm unet we always keep the strides at 1, but we take the kernel sizes from the
     # corresponding layer of nnunet. Then we use all the corresponding nnunet layers for the rest of diffusion layers
-    ddpm_dict['strides'] = [[1] * spatial_dims] + strides[vae_n_layers+1:]
-    ddpm_dict['kernel_sizes'] = [kernel_sizes[vae_n_layers+1]] + kernel_sizes[vae_n_layers+1:]
+    ddpm_dict['strides'] = [[1] * spatial_dims] + strides[vae_n_layers+1:vae_n_layers+4]
+    ddpm_dict['kernel_sizes'] = [kernel_sizes[vae_n_layers+1]] + kernel_sizes[vae_n_layers+1:vae_n_layers+4]
     ddpm_dict['paddings'] = [[1 if k == 3 else 0 for k in layer] for layer in ddpm_dict['kernel_sizes']]
 
     return ddpm_dict
@@ -608,33 +616,39 @@ def create_ddpm_dict(nnunet_config_dict, spatial_dims):
 def create_config_dict(nnunet_config_dict, input_channels, autoencoder_dict, ddpm_dict):
 
     features_per_stage = nnunet_config_dict['architecture']['arch_kwargs']['features_per_stage']
+    median_image_size = nnunet_config_dict['median_image_size_in_voxels']
+
+    # For 3D, for each axis, use as size the closest power of 2 or 3 to the corresponding size of nnunet median patch size
+    valid_sizes = [32, 64, 96, 128, 192, 256, 384, 512]
+    patch_size_3d = [min(valid_sizes, key=lambda x: abs(x - size)) for size in median_image_size]
+    patch_size = nnunet_config_dict['patch_size'] if autoencoder_dict['spatial_dims'] == 2 else patch_size_3d
 
     ae_transformations = {
-        "patch_size": nnunet_config_dict['patch_size'],  # Random crop size
-        "scaling": True,  # Enable scaling transformations
-        "rotation": True,  # Enable rotation transformations
-        "gaussian_noise": False,  # Enable Gaussian noise
-        "gaussian_blur": False,  # Enable Gaussian blur
+        "patch_size": patch_size,
+        "scaling": True,
+        "rotation": True,
+        "gaussian_noise": False,
+        "gaussian_blur": False,
         "low_resolution": False,
-        "brightness": True,  # Enable brightness adjustment
-        "contrast": True,  # Enable contrast adjustment
-        "gamma": True,  # Enable gamma adjustment
-        "mirror": True,  # Enable mirroring
-        "dummy_2d": False  # Enable dummy 2D mode
+        "brightness": True,
+        "contrast": True,
+        "gamma": True,
+        "mirror": True,
+        "dummy_2d": False
     }
     # not using augmentations for ddpm training
     ddpm_transformations = {
-        "patch_size": nnunet_config_dict['patch_size'],  # Random crop size
-        "scaling": False,  # Enable scaling transformations
-        "rotation": False,  # Enable rotation transformations
-        "gaussian_noise": False,  # Enable Gaussian noise
-        "gaussian_blur": False,  # Enable Gaussian blur
+        "patch_size": patch_size,
+        "scaling": False,
+        "rotation": False,
+        "gaussian_noise": False,
+        "gaussian_blur": False,
         "low_resolution": False,
-        "brightness": False,  # Enable brightness adjustment
-        "contrast": False,  # Enable contrast adjustment
-        "gamma": False,  # Enable gamma adjustment
-        "mirror": False,  # Enable mirroring
-        "dummy_2d": False  # Enable dummy 2D mode
+        "brightness": False,
+        "contrast": False,
+        "gamma": False,
+        "mirror": False,
+        "dummy_2d": False
     }
 
     if autoencoder_dict['spatial_dims'] == 2:
@@ -643,7 +657,7 @@ def create_config_dict(nnunet_config_dict, input_channels, autoencoder_dict, ddp
         perceptual_params = {'spatial_dims': 3, 'network_type': "vgg", 'is_fake_3d': True, 'fake_3d_ratio': 0.2}
 
     discriminator_params = {'spatial_dims': autoencoder_dict['spatial_dims'], 'in_channels': autoencoder_dict['in_channels'],
-                            'out_channels': 1, 'num_channels': features_per_stage[0] * 2, 'num_layers_d': 3}
+                            'out_channels': 1, 'num_channels': 64, 'num_layers_d': 3}
 
     # getting together the inferred parameters from our rules and nnU-Net, and also defining some fixed parameters
     n_epochs = 200
@@ -651,9 +665,15 @@ def create_config_dict(nnunet_config_dict, input_channels, autoencoder_dict, ddp
         # for 2d use 75% of batch size for both ae and ddpm
         ae_batch_size = int(nnunet_config_dict['batch_size'] * 0.75)
         ddpm_batch_size = int(nnunet_config_dict['batch_size'] * 0.75)
+        grad_accumulate_step = 1
     else:
-        # for 3d use batch size 2 for ae and 4 for ddpm
-        ae_batch_size = nnunet_config_dict['batch_size']
+        # for 3d use batch size 2 for ae and 4 for ddpm, or 1 and 2 if image size > 320 and use grad accumulation
+        if max(patch_size) > 320:
+            ae_batch_size = 1
+            grad_accumulate_step = 2
+        else:
+            ae_batch_size = 2
+            grad_accumulate_step = 1
         ddpm_batch_size = ae_batch_size * 2
     config = {
         'input_channels': input_channels,
@@ -664,27 +684,27 @@ def create_config_dict(nnunet_config_dict, input_channels, autoencoder_dict, ddp
         'n_epochs': n_epochs,
         'val_plot_interval': 10,
         'grad_clip_max_norm': 1,
-        'grad_accumulate_step': 1,
-        'oversample_ratio': 0.66,
+        'grad_accumulate_step': grad_accumulate_step,
+        'oversample_ratio': 0.33,
         'num_workers': 8,
-        'lr_scheduler': "LinearLR",
-        'lr_scheduler_params': {'start_factor': 1.0, 'end_factor': 0., 'total_iters': n_epochs},
+        # 'lr_scheduler': "LinearLR",
+        # 'lr_scheduler_params': {'start_factor': 1.0, 'end_factor': 0., 'total_iters': n_epochs},
         # 'lr_scheduler_params': {'start_factor': 1.0, 'end_factor': 0.0001, 'total_iters': int(n_epochs*0.9)},
-        # 'lr_scheduler': "PolynomialLR",
-        # 'lr_scheduler_params': {'total_iters': n_epochs, 'power': 0.9},
+        'lr_scheduler': "PolynomialLR",
+        'lr_scheduler_params': {'total_iters': n_epochs, 'power': 0.9},
         'time_scheduler_params': {'num_train_timesteps': 1000, 'schedule': "scaled_linear_beta", 'beta_start': 0.0015,
-                                  'beta_end': 0.0205, 'prediction_type': "epsilon"},
+                                  'beta_end': 0.0205, 'prediction_type': "v_prediction"},
         'ae_learning_rate': 1e-4,
-        'weight_decay': 3e-5,
+        # 'weight_decay': 3e-5,
         'd_learning_rate': 1e-4,
-        'autoencoder_warm_up_epochs': 10,
+        'autoencoder_warm_up_epochs': 5,
         'kl_weight': 1e-8,
         'adv_weight': 0.05,
         'perc_weight': 0.5,
         'vae_params': autoencoder_dict,
         'perceptual_params': perceptual_params,
         'discriminator_params': discriminator_params,
-        'ddpm_learning_rate': 5e-5,
+        'ddpm_learning_rate': 2e-5,
         'ddpm_params': ddpm_dict
     }
 
