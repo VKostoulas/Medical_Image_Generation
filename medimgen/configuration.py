@@ -606,8 +606,8 @@ def create_ddpm_dict(nnunet_config_dict, spatial_dims):
     # Now the remaining conv parameters from nnunet do not involve the first conv block of the ddpm unet
     # For the first layer of the ddpm unet we always keep the strides at 1, but we take the kernel sizes from the
     # corresponding layer of nnunet. Then we use all the corresponding nnunet layers for the rest of diffusion layers
-    ddpm_dict['strides'] = [[1] * spatial_dims] + strides[vae_n_layers+1:vae_n_layers+4]
-    ddpm_dict['kernel_sizes'] = [kernel_sizes[vae_n_layers+1]] + kernel_sizes[vae_n_layers+1:vae_n_layers+4]
+    ddpm_dict['strides'] = [[1] * spatial_dims] + strides[vae_n_layers+1:vae_n_layers+3]
+    ddpm_dict['kernel_sizes'] = [kernel_sizes[vae_n_layers+1]] + kernel_sizes[vae_n_layers+1:vae_n_layers+3]
     ddpm_dict['paddings'] = [[1 if k == 3 else 0 for k in layer] for layer in ddpm_dict['kernel_sizes']]
 
     return ddpm_dict

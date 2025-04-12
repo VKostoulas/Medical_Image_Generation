@@ -69,22 +69,16 @@ class AutoEncoder:
         kl_loss = torch.sum(kl_loss, dim=spatial_dims)
         return torch.sum(kl_loss) / kl_loss.shape[0]
 
-    def get_kl_loss_weight(self, epoch, min_weight=1e-11, max_weight=1e-2):
-        t = np.arange(self.config['n_epochs'] + 1)
-        base_schedule = 1 - 0.5 * (1 + np.cos(np.pi * t / (self.config['n_epochs'] + 1)))
-        scaled_schedule = min_weight * (max_weight / min_weight) ** base_schedule
-        kl_loss_weight = scaled_schedule[epoch]
-        return kl_loss_weight
-
     def train_one_epoch(self, epoch, train_loader, discriminator, perceptual_loss, optimizer_g, optimizer_d, scaler_g,
                         scaler_d):
         self.autoencoder.train()
         discriminator.train()
         epoch_loss_dict = {'rec_loss': 0, 'reg_loss': 0, 'gen_loss': 0, 'disc_loss': 0, 'perc_loss': 0}
         disable_prog_bar = self.config['output_mode'] == 'log' or not self.config['progress_bar']
-        # anneal kl loss weight from min weight to max weight with a scaled cosine schedule
-        self.config['kl_weight'] = self.get_kl_loss_weight(epoch)
-        print(f"KL loss weight: {self.config['kl_weight']}")
+        # adaptive kl_loss_weight based on difference with reconstruction loss
+        if epoch > 1 and not self.loss_dict['reg_loss'][-1] > self.loss_dict['rec_loss'][-1] / 2:
+            self.config['kl_weight'] = self.config['kl_weight'] * 2
+            print(f"KL loss weight updated: {self.config['kl_weight']}")
         start = time.time()
 
         with tqdm(enumerate(train_loader), total=len(train_loader), ncols=150, disable=disable_prog_bar, file=sys.stdout) as progress_bar:
