@@ -63,6 +63,7 @@ class LDM:
             self.autoencoder.eval()
         else:
             raise ValueError("Invalid latent_space_type. Choose 'vq' or 'vae'.")
+        print(f"Autoencoder epoch: {checkpoint['epoch']}")
 
         if latent_space_type == 'vq':
             self.codebook_min, self.codebook_max = self.get_codebook_min_max()
