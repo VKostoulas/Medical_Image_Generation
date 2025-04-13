@@ -502,7 +502,7 @@ class LDM:
             lr_scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
 
         if for_training:
-            return checkpoint['epoch']
+            return checkpoint['epoch'] + 1
 
     def train_main(self, train_loader, val_loader):
         scaler = GradScaler()
