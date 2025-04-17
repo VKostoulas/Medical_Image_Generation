@@ -110,7 +110,7 @@ def save_all_losses(loss_dict, save_path, log_scale=True):
     os.makedirs(save_path, exist_ok=True)
     save_plot_path = os.path.join(save_path, f"loss.png")
 
-    epochs = range(len(loss_dict['rec_loss']))  # Epoch indices
+    epochs = range(1, len(loss_dict['rec_loss']) + 1)  # Epoch indices
 
     mapping_names_dict = {'rec_loss': 'Train Reconstruction Loss', 'val_rec_loss': 'Val Reconstruction Loss',
                           'reg_loss': 'Regularization Loss', 'gen_loss': 'Generator Loss',
