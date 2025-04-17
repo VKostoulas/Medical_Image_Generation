@@ -628,7 +628,7 @@ def get_config_for_current_task(dataset_id, model_type, progress_bar, continue_t
     dataset_folder_name = preprocessed_dataset_path.split('/')[-2]
 
     main_results_path = os.path.join(os.getenv('medimgen_results'), dataset_folder_name, model_type)
-    trained_ae_path = os.path.join(main_results_path, 'autoencoder', 'checkpoints', 'last_model.pth')
+    trained_ae_path = os.path.join(main_results_path, 'autoencoder', 'checkpoints', 'best_model.pth')
     if not os.path.isfile(trained_ae_path):
         raise FileNotFoundError(f"No pretrained autoencoder found. You should first train an autoencoder in order to "
                                 f"train a latent diffusion model")

@@ -594,9 +594,9 @@ def create_ddpm_dict(nnunet_config_dict, spatial_dims):
     #     raise ValueError("The number of stages must be at least 2.")
     # # First 2 stages without attention, then attention for the rest
     # ddpm_dict['attention_levels'] = [False, False] + [True] * (len(ddpm_dict['num_channels']) - 2)
-    ddpm_dict['num_channels'] = [128, 256, 512]
+    ddpm_dict['num_channels'] = [256, 512, 768]
     ddpm_dict['attention_levels'] = [False, True, True]
-    ddpm_dict['num_head_channels'] = [0, 256, 512]
+    ddpm_dict['num_head_channels'] = [0, 512, 768]
 
     # if len(ddpm_dict['num_channels']) != len(ddpm_dict['attention_levels']):
     #     raise ValueError("num_channels and attention_levels must be of the same length.")
@@ -660,7 +660,7 @@ def create_config_dict(nnunet_config_dict, input_channels, autoencoder_dict, ddp
                             'out_channels': 1, 'num_channels': 64, 'num_layers_d': 3}
 
     # getting together the inferred parameters from our rules and nnU-Net, and also defining some fixed parameters
-    n_epochs = 300
+    n_epochs = 300 if autoencoder_dict['spatial_dims'] == 3 else 200
     if autoencoder_dict['spatial_dims'] == 2:
         # for 2d use 75% of batch size for both ae and ddpm
         ae_batch_size = int(nnunet_config_dict['batch_size'] * 0.75)
