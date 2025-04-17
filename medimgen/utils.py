@@ -89,7 +89,7 @@ def save_main_losses(epoch_loss_list, val_epoch_loss_list, save_path):
     os.makedirs(save_path, exist_ok=True)
     save_plot_path = os.path.join(save_path, f"loss.png")
 
-    epochs = range(len(epoch_loss_list))  # Epochs for training loss
+    epochs = range(1, len(epoch_loss_list) + 1)  # Epochs for training loss
 
     plt.figure(figsize=(8, 6))
     plt.plot(epochs, epoch_loss_list, label="Training Loss", marker='o', linestyle='-')
