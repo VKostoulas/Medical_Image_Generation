@@ -618,8 +618,8 @@ def create_config_dict(nnunet_config_dict, input_channels, autoencoder_dict, ddp
     features_per_stage = nnunet_config_dict['architecture']['arch_kwargs']['features_per_stage']
     median_image_size = nnunet_config_dict['median_image_size_in_voxels']
 
-    # For 3D, for each axis, use as size the closest power of 2 or 3 to the corresponding size of nnunet median patch size
-    valid_sizes = [32, 64, 96, 128, 192, 256, 384, 512]
+    # For 3D, for each axis, use as size the closest multiple of 2, 3, or 7 by 2, to the corresponding size of nnunet median patch size
+    valid_sizes = [32, 48, 56, 64, 96, 112, 128, 192, 224, 256, 384, 448, 512]
     patch_size_3d = [min(valid_sizes, key=lambda x: abs(x - size)) for size in median_image_size]
     patch_size = nnunet_config_dict['patch_size'] if autoencoder_dict['spatial_dims'] == 2 else patch_size_3d
 
@@ -659,7 +659,7 @@ def create_config_dict(nnunet_config_dict, input_channels, autoencoder_dict, ddp
     discriminator_params = {'spatial_dims': autoencoder_dict['spatial_dims'], 'in_channels': autoencoder_dict['in_channels'],
                             'out_channels': 1, 'num_channels': 64, 'num_layers_d': 3}
 
-    # getting together the inferred parameters from our rules and nnU-Net, and also defining some fixed parameters
+    # getting together our parameters and nnU-Net's, and also defining some fixed parameters
     n_epochs = 300 if autoencoder_dict['spatial_dims'] == 3 else 200
     if autoencoder_dict['spatial_dims'] == 2:
         # for 2d use 75% of batch size for both ae and ddpm
