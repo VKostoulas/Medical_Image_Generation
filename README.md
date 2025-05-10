@@ -8,13 +8,15 @@ can take a colossal amount of memory) With techniques like mixed precision,
 activation checkpointing, and gradient accumulation you will fit your model in
 your GPU!
 
-This system is heavily based on nnU-Net. Given a dataset, nnU-Net automatically
-defines all the hyperparamaters that should be used for this dataset. We simply
-transfer these hyperparameters to the task of training diffusion models
-for medical image generation. nnU-Net inferred parameters also work for the image
-generation task, and this project provides you with a natural way to enhance
-your nnU-Net based segmentation models: generate images (and labels) and use these
-to enhance your segmentation model.
+This project is heavily based on [nnU-Net](https://github.com/MIC-DKFZ/nnUNet) and 
+[MONAI generative models](https://github.com/Project-MONAI/GenerativeModels). Given a 
+dataset, nnU-Net automatically defines all the hyperparamaters that should be used for 
+this dataset on a segmentation task. We simply transfer some of these hyperparameters to 
+the task of training diffusion-latent diffusion models for medical image generation base 
+on MONAI generative models, and add some additional techniques to automate the 
+hyperparameter decision for each task. This project provides you with an easy way to 
+enhance your nnU-Net based segmentation models: generate images (and labels) and use 
+these to improve the performance of your segmentation model.
 
 ### Requirements
 - python 3.9.17, cuda 11.8, and at least one GPU with 8GB memory
@@ -147,7 +149,7 @@ splitting
 - MODEL_TYPE: should be either '2d' or '3d' 
 - -p: indicates that we want to see progress bars.
 
-#### Denoising Diffusion Probabilistic Model
+#### Denoising Diffusion Probabilistic Model (<span style="color:red">*Will be added*</span>)
 Here is an example to train a Denoising Diffusion Probabilistic Model:
 
 ```bash
@@ -184,16 +186,24 @@ will be created instead of printing everything on screen
 #### Tips for Training
 
 - To continue training a model, just pass -c when running the training command.
-- The autoencoder shouldn't have more than 2-3 downsampling layers, otherwise it 
-won't be able to reconstruct details accurately.
-- Only a few convolutional filters for every layer of the autoencoder (e.g., 32), 
-can result in good enough reconstruction performance. 
-- Loss weights in the training of the autoencoder are really important. Some works
-might use relatively small loss weights for the perceptual loss (e.g., 0.01) and the
-adversarial loss (e.g., 0.1), but based on experiments a value of 1, and 0.25, 
-respectively, gives much better and realistic results.
 
-### Sampling
+[//]: # (- The autoencoder shouldn't have more than 2-3 downsampling layers, otherwise it )
+
+[//]: # (won't be able to reconstruct details accurately.)
+
+[//]: # (- Only a few convolutional filters for every layer of the autoencoder &#40;e.g., 32&#41;, )
+
+[//]: # (can result in good enough reconstruction performance. )
+
+[//]: # (- Loss weights in the training of the autoencoder are really important. Some works)
+
+[//]: # (might use relatively small loss weights for the perceptual loss &#40;e.g., 0.01&#41; and the)
+
+[//]: # (adversarial loss &#40;e.g., 0.1&#41;, but based on experiments a value of 1, and 0.25, )
+
+[//]: # (respectively, gives much better and realistic results.)
+
+### Sampling (<span style="color:red">*Will be added*</span>)
 
 To sample with your favorite diffusion model run (obviously, after you have trained
 the corresponding models):
@@ -204,30 +214,53 @@ medimgen_sample DATASET_ID MODEL_TYPE NUM_IMAGES SAVE_PATH -p
 This will sample NUM_IMAGES images and save them in SAVE_PATH
 
 
-## ToDos
+[//]: # (## ToDos)
 
-1. Pass nnUNet configured parameters to medimgen
-   1. create code that reads nnunet file and creates a medimgen config file
-   2. adapt autoencoder + diffusion for flexible architectures
-2. create code to select the additional hyperparameters not involved in nnUNet
-3. Adapt dataset class for 2D and 3D training, nnUNet augmentations, and ideally 
-nnUNet patch selection when training (oversampling).
+[//]: # ()
+[//]: # (1. Pass nnUNet configured parameters to medimgen)
 
-- Add intensity normalization?
-- Add option to include labels, so that we can train a model to generate labels 
-together with images
-- Add efficient implementation of U-Net like in Medical Diffusion
-- Add GANs
-- Ultimate Goal: like nnU-Net, study and come up with heuristics that can be applied
-to multiple datasets and achieve high quality generation. Come up with ways to 
-automatically configure every experiment's hyperparameters.
+[//]: # (   1. create code that reads nnunet file and creates a medimgen config file)
 
-- Experimental: nnUNet works with random cropped patches instead of full images.
-Wouldn't that be awesome to do also in image generation? This would reduce 
-computational demands and also increase the training dataset size. We can train
-the autoencoder to output cropped patches and then do sliding window inference, but
-how to perform generation from multiple patches, so multiple latent vectors? IDEA: 
-Train the diffusion model to generate latent vectors based on image patches, 
-conditioned on latent vectors from image patches around the main patch. On inference,
-start generation with the top left patch conditioned on patches of zeros, and then
-generate patches sequentially based on previously generated patches.
+[//]: # (   2. adapt autoencoder + diffusion for flexible architectures)
+
+[//]: # (2. create code to select the additional hyperparameters not involved in nnUNet)
+
+[//]: # (3. Adapt dataset class for 2D and 3D training, nnUNet augmentations, and ideally )
+
+[//]: # (nnUNet patch selection when training &#40;oversampling&#41;.)
+
+[//]: # ()
+[//]: # (- Add intensity normalization?)
+
+[//]: # (- Add option to include labels, so that we can train a model to generate labels )
+
+[//]: # (together with images)
+
+[//]: # (- Add efficient implementation of U-Net like in Medical Diffusion)
+
+[//]: # (- Add GANs)
+
+[//]: # (- Ultimate Goal: like nnU-Net, study and come up with heuristics that can be applied)
+
+[//]: # (to multiple datasets and achieve high quality generation. Come up with ways to )
+
+[//]: # (automatically configure every experiment's hyperparameters.)
+
+[//]: # ()
+[//]: # (- Experimental: nnUNet works with random cropped patches instead of full images.)
+
+[//]: # (Wouldn't that be awesome to do also in image generation? This would reduce )
+
+[//]: # (computational demands and also increase the training dataset size. We can train)
+
+[//]: # (the autoencoder to output cropped patches and then do sliding window inference, but)
+
+[//]: # (how to perform generation from multiple patches, so multiple latent vectors? IDEA: )
+
+[//]: # (Train the diffusion model to generate latent vectors based on image patches, )
+
+[//]: # (conditioned on latent vectors from image patches around the main patch. On inference,)
+
+[//]: # (start generation with the top left patch conditioned on patches of zeros, and then)
+
+[//]: # (generate patches sequentially based on previously generated patches.)
