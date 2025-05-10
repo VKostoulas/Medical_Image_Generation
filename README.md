@@ -10,10 +10,10 @@ your GPU!
 
 This project is heavily based on [nnU-Net](https://github.com/MIC-DKFZ/nnUNet) and 
 [MONAI generative models](https://github.com/Project-MONAI/GenerativeModels). Given a 
-dataset, nnU-Net automatically defines all the hyperparamaters that should be used for 
-this dataset on a segmentation task. We simply transfer some of these hyperparameters to 
-the task of training diffusion-latent diffusion models for medical image generation base 
-on MONAI generative models, and add some additional techniques to automate the 
+dataset, nnU-Net automatically configures all the hyperparamaters that should be used 
+for this dataset on a segmentation task. We simply transfer some of these hyperparameters 
+to the task of training diffusion-latent diffusion models for medical image generation 
+based on MONAI generative models, and add some additional techniques to automate the 
 hyperparameter decision for each task. This project provides you with an easy way to 
 enhance your nnU-Net based segmentation models: generate images (and labels) and use 
 these to improve the performance of your segmentation model.
