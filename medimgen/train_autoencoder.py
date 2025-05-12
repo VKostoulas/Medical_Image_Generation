@@ -69,16 +69,48 @@ class AutoEncoder:
         kl_loss = torch.sum(kl_loss, dim=spatial_dims)
         return torch.sum(kl_loss) / kl_loss.shape[0]
 
+    # def adapt_kl_loss(self, epoch):
+    #     # adaptive kl_loss_weight based on difference with half the reconstruction loss
+    #     if epoch > 1 and not self.loss_dict['reg_loss'][-1] > self.loss_dict['rec_loss'][-1] / 2:
+    #         self.config['kl_weight'] = self.config['kl_weight'] * 2
+    #         print(f"KL loss weight updated: {self.config['kl_weight']}")
+
+    def adapt_kl_loss(self, epoch):
+        """
+        Epoch is 1-based. Must be called after you append
+        the latest rec_loss/reg_loss to self.loss_dict.
+        """
+        if epoch < 2:
+            self.config['kl_weight'] = 1e-15
+        else:
+            rec_prev = self.loss_dict['rec_loss'][-1]
+            kl_prev  = self.loss_dict['reg_loss'][-1]
+            mid_epoch = self.config['n_epochs'] // 2
+
+            # Compute θ depending on which half we're in
+            if epoch <= mid_epoch:
+                # map [1→mid] to [0→π/2]
+                theta = (epoch - 1) / (mid_epoch - 1) * (np.pi / 2)
+            else:
+                # map [mid+1→total] to [π/2→3π/4]
+                theta = (np.pi / 2) + (epoch - mid_epoch) / (self.config['n_epochs'] - mid_epoch) * (np.pi / 4)
+
+            factor = np.sin(theta)  # in [0→1→0.707]
+            target_kl_contribution = factor * rec_prev  # capped at reconstruction loss
+
+            # solve for the weight that would give exactly that contribution:
+            kl_weight = target_kl_contribution / kl_prev
+
+            self.config['kl_weight'] = kl_weight
+            print(f"KL loss weight updated: {self.config['kl_weight']}")
+
     def train_one_epoch(self, epoch, train_loader, discriminator, perceptual_loss, optimizer_g, optimizer_d, scaler_g,
                         scaler_d):
         self.autoencoder.train()
         discriminator.train()
         epoch_loss_dict = {'rec_loss': 0, 'reg_loss': 0, 'gen_loss': 0, 'disc_loss': 0, 'perc_loss': 0}
         disable_prog_bar = self.config['output_mode'] == 'log' or not self.config['progress_bar']
-        # adaptive kl_loss_weight based on difference with reconstruction loss
-        if epoch > 1 and not self.loss_dict['reg_loss'][-1] > self.loss_dict['rec_loss'][-1] / 2:
-            self.config['kl_weight'] = self.config['kl_weight'] * 2
-            print(f"KL loss weight updated: {self.config['kl_weight']}")
+        self.adapt_kl_loss(epoch)
         start = time.time()
 
         with tqdm(enumerate(train_loader), total=len(train_loader), ncols=150, disable=disable_prog_bar, file=sys.stdout) as progress_bar:
