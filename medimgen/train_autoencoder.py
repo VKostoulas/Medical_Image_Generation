@@ -98,8 +98,8 @@ class AutoEncoder:
             factor = np.sin(theta)  # in [0→1→0.707]
             target_kl_contribution = factor * rec_prev  # capped at reconstruction loss
 
-            # solve for the weight that would give exactly that contribution:
-            kl_weight = target_kl_contribution / (kl_prev / self.config['kl_weight'])
+            # solve for the weight that would give exactly that contribution, adjusted based on the current factor:
+            kl_weight = target_kl_contribution / (kl_prev / self.config['kl_weight']) * factor
 
             self.config['kl_weight'] = kl_weight
             print(f"KL loss weight updated: {self.config['kl_weight']}")
