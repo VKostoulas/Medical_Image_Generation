@@ -81,7 +81,7 @@ class AutoEncoder:
         the latest rec_loss/reg_loss to self.loss_dict.
         """
         if epoch < 2:
-            self.config['kl_weight'] = 1e-15
+            self.config['kl_weight'] = 1e-12
         else:
             rec_prev = self.loss_dict['rec_loss'][-1]
             kl_prev  = self.loss_dict['reg_loss'][-1]
@@ -98,8 +98,8 @@ class AutoEncoder:
             factor = np.sin(theta)  # in [0→1→0.707]
             target_kl_contribution = factor * rec_prev  # capped at reconstruction loss
 
-            # solve for the weight that would give exactly that contribution:
-            kl_weight = target_kl_contribution / kl_prev
+            # solve for the weight that would give exactly that contribution, adjusted based on the current factor:
+            kl_weight = target_kl_contribution / kl_prev * factor
 
             self.config['kl_weight'] = kl_weight
             print(f"KL loss weight updated: {self.config['kl_weight']}")
