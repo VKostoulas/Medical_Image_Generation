@@ -77,10 +77,10 @@ class AutoEncoder:
             # define the epoch that we want the kl loss to reach the maximum value: at 3/4 of training
             target_epoch = int(0.75 * self.config['n_epochs'])
             remaining_epochs = max(target_epoch - epoch, 1)
-            # desired weight so that w*kl = rec/2
-            w_target = (current_rec / 2.0) / current_kl
             # current weight
             w_current = self.config['kl_weight']
+            # desired weight so that w*kl = rec/2
+            w_target = (current_rec / 2.0) / (current_kl / w_current)
 
             r = (w_target / w_current) ** (1.0 / remaining_epochs)
             w_new = w_current * r
