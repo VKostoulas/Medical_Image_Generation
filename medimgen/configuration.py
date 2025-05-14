@@ -3,6 +3,7 @@ import os
 import ast
 import glob
 import sys
+import math
 import yaml
 import argparse
 import logging
@@ -613,15 +614,17 @@ def create_ddpm_dict(nnunet_config_dict, spatial_dims):
     return ddpm_dict
 
 
-def create_config_dict(nnunet_config_dict, input_channels, autoencoder_dict, ddpm_dict):
+def create_config_dict(nnunet_config_dict, input_channels, n_epochs_multiplier, autoencoder_dict, ddpm_dict):
 
-    features_per_stage = nnunet_config_dict['architecture']['arch_kwargs']['features_per_stage']
+    # features_per_stage = nnunet_config_dict['architecture']['arch_kwargs']['features_per_stage']
     median_image_size = nnunet_config_dict['median_image_size_in_voxels']
 
     # For 3D, for each axis, use as size the closest multiple of 2, 3, or 7 by 2, to the corresponding size of nnunet median patch size
     valid_sizes = [32, 48, 56, 64, 96, 112, 128, 192, 224, 256, 384, 448, 512]
     patch_size_3d = [min(valid_sizes, key=lambda x: abs(x - size)) for size in median_image_size]
     patch_size = nnunet_config_dict['patch_size'] if autoencoder_dict['spatial_dims'] == 2 else patch_size_3d
+
+    print(f"Patch size: {patch_size}")
 
     ae_transformations = {
         "patch_size": patch_size,
@@ -659,22 +662,28 @@ def create_config_dict(nnunet_config_dict, input_channels, autoencoder_dict, ddp
     discriminator_params = {'spatial_dims': autoencoder_dict['spatial_dims'], 'in_channels': autoencoder_dict['in_channels'],
                             'out_channels': 1, 'num_channels': 64, 'num_layers_d': 3}
 
-    # getting together our parameters and nnU-Net's, and also defining some fixed parameters
+    # adjust the number of epochs based on the training model (2D/3D) and number of training data
     n_epochs = 300 if autoencoder_dict['spatial_dims'] == 3 else 200
+    n_epochs = n_epochs * n_epochs_multiplier
+
+    # adjust the batch size and gradient accumulation
     if autoencoder_dict['spatial_dims'] == 2:
         # for 2d use 75% of batch size for both ae and ddpm
         ae_batch_size = int(nnunet_config_dict['batch_size'] * 0.75)
         ddpm_batch_size = int(nnunet_config_dict['batch_size'] * 0.75)
         grad_accumulate_step = 1
     else:
-        # for 3d use batch size 2 for ae and 4 for ddpm, or 1 and 2 if image size > 320 and use grad accumulation
-        if max(patch_size) > 320:
-            ae_batch_size = 1
-            grad_accumulate_step = 2
-        else:
-            ae_batch_size = 2
-            grad_accumulate_step = 1
+        ae_batch_size = 2
         ddpm_batch_size = ae_batch_size * 2
+        grad_accumulate_step = 1
+
+    # if batch size and patch size get large, use gradient accumulation
+    if math.prod(patch_size + [ae_batch_size]) > 2e+6:
+        ae_batch_size /= 2
+        ddpm_batch_size /= 2
+        grad_accumulate_step *= 2
+        print("We will use 2 gradient accumulation steps while training.")
+
     config = {
         'input_channels': input_channels,
         'ae_transformations': ae_transformations,
@@ -742,6 +751,13 @@ def main():
     input_channels = input_channels if input_channels is not None \
         else [i for i in range(len(nnunet_data_json['channel_names']))]
 
+    if 0.7 * nnunet_data_json['numTraining'] < 100:
+        n_epochs_multiplier = 1
+    elif 100 < 0.7 * nnunet_data_json['numTraining'] < 500:
+        n_epochs_multiplier = 2
+    else:
+        n_epochs_multiplier = 3
+
     configuration_2d = nnunet_plan['configurations']['2d']
     configuration_3d = nnunet_plan['configurations']['3d_fullres']
 
@@ -754,8 +770,8 @@ def main():
     ddpm_dict_2d = create_ddpm_dict(configuration_2d, spatial_dims=2)
     ddpm_dict_3d = create_ddpm_dict(configuration_3d, spatial_dims=3)
 
-    config_2d = create_config_dict(configuration_2d, input_channels, vae_dict_2d, ddpm_dict_2d)
-    config_3d = create_config_dict(configuration_3d, input_channels, vae_dict_3d, ddpm_dict_3d)
+    config_2d = create_config_dict(configuration_2d, input_channels, n_epochs_multiplier, vae_dict_2d, ddpm_dict_2d)
+    config_3d = create_config_dict(configuration_3d, input_channels, n_epochs_multiplier, vae_dict_3d, ddpm_dict_3d)
 
     config = {'2D': config_2d, '3D': config_3d}
 

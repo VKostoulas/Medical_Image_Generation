@@ -69,40 +69,83 @@ class AutoEncoder:
         kl_loss = torch.sum(kl_loss, dim=spatial_dims)
         return torch.sum(kl_loss) / kl_loss.shape[0]
 
+    def adapt_kl_loss(self, epoch):
+        # adaptive kl_loss_weight based on difference with half the reconstruction loss
+        current_rec = self.loss_dict['rec_loss'][-1]
+        current_kl = self.loss_dict['reg_loss'][-1]
+
+        if epoch > 1:
+            # define the epoch that we want the kl loss to reach the maximum value: at 3/4 of training
+            target_epoch = int(0.75 * self.config['n_epochs'])
+            remaining_epochs = max(target_epoch - epoch, 1)
+            # desired weight so that w*kl = rec/2
+            w_target = (current_rec / 2.0) / current_kl
+            # current weight
+            w_current = self.config['kl_weight']
+
+            r = (w_target / w_current) ** (1.0 / remaining_epochs)
+            w_new = w_current * r
+            # if kl loss gets bigger than reconstruction loss, clamp it
+            w_new = min(w_new, w_target)
+
+            self.config['kl_weight'] = w_new
+            print(f"KL loss weight updated: {self.config['kl_weight']}")
+
     # def adapt_kl_loss(self, epoch):
     #     # adaptive kl_loss_weight based on difference with half the reconstruction loss
     #     if epoch > 1 and not self.loss_dict['reg_loss'][-1] > self.loss_dict['rec_loss'][-1] / 2:
     #         self.config['kl_weight'] = self.config['kl_weight'] * 2
     #         print(f"KL loss weight updated: {self.config['kl_weight']}")
 
-    def adapt_kl_loss(self, epoch):
-        """
-        Epoch is 1-based. Must be called after you append
-        the latest rec_loss/reg_loss to self.loss_dict.
-        """
-        if epoch < 2:
-            self.config['kl_weight'] = 1e-12
-        else:
-            rec_prev = self.loss_dict['rec_loss'][-1]
-            kl_prev  = self.loss_dict['reg_loss'][-1]
-            mid_epoch = self.config['n_epochs'] // 2
+    # def adapt_kl_loss(self, epoch):
+    #     """
+    #     Epoch is 1-based. Must be called after you append
+    #     the latest rec_loss/reg_loss to self.loss_dict.
+    #     """
+    #     if epoch < 2:
+    #         self.config['kl_weight'] = 1e-12
+    #     else:
+    #         rec_prev = self.loss_dict['rec_loss'][-1]
+    #         kl_prev  = self.loss_dict['reg_loss'][-1]
+    #         mid_epoch = self.config['n_epochs'] // 2
+    #
+    #         # Compute θ depending on which half we're in
+    #         if epoch <= mid_epoch:
+    #             # map [1→mid] to [0→π/2]
+    #             theta = (epoch - 1) / (mid_epoch - 1) * (np.pi / 2)
+    #         else:
+    #             # map [mid+1→total] to [π/2→3π/4]
+    #             theta = (np.pi / 2) + (epoch - mid_epoch) / (self.config['n_epochs'] - mid_epoch) * (np.pi / 4)
+    #
+    #         factor = np.sin(theta)  # in [0→1→0.707]
+    #         target_kl_contribution = factor * rec_prev  # capped at reconstruction loss
+    #
+    #         # solve for the weight that would give exactly that contribution, adjusted based on the current factor:
+    #         kl_weight = target_kl_contribution / (kl_prev / self.config['kl_weight']) * factor
+    #
+    #         self.config['kl_weight'] = kl_weight
+    #         print(f"KL loss weight updated: {self.config['kl_weight']}")
 
-            # Compute θ depending on which half we're in
-            if epoch <= mid_epoch:
-                # map [1→mid] to [0→π/2]
-                theta = (epoch - 1) / (mid_epoch - 1) * (np.pi / 2)
-            else:
-                # map [mid+1→total] to [π/2→3π/4]
-                theta = (np.pi / 2) + (epoch - mid_epoch) / (self.config['n_epochs'] - mid_epoch) * (np.pi / 4)
-
-            factor = np.sin(theta)  # in [0→1→0.707]
-            target_kl_contribution = factor * rec_prev  # capped at reconstruction loss
-
-            # solve for the weight that would give exactly that contribution, adjusted based on the current factor:
-            kl_weight = target_kl_contribution / (kl_prev / self.config['kl_weight']) * factor
-
-            self.config['kl_weight'] = kl_weight
-            print(f"KL loss weight updated: {self.config['kl_weight']}")
+    # def adapt_kl_loss_weight(self, epoch, step, kl_loss):
+    #     """
+    #
+    #     """
+    #     rec_prev = self.loss_dict['rec_loss'][-1]
+    #     kl_prev  = self.loss_dict['reg_loss'][-1]
+    #
+    #     w_min = 1e-5 / expected_kl
+    #     self.w_max = kl_max   / expected_kl
+    #     self.cycles = cycles
+    #
+    #
+    #     factor = np.sin(theta)  # in [0→1→0.707]
+    #     target_kl_contribution = factor * rec_prev  # capped at reconstruction loss
+    #
+    #     # solve for the weight that would give exactly that contribution, adjusted based on the current factor:
+    #     kl_weight = target_kl_contribution / (kl_prev / self.config['kl_weight']) * factor
+    #
+    #     self.config['kl_weight'] = kl_weight
+    #     print(f"KL loss weight updated: {self.config['kl_weight']}")
 
     def train_one_epoch(self, epoch, train_loader, discriminator, perceptual_loss, optimizer_g, optimizer_d, scaler_g,
                         scaler_d):
