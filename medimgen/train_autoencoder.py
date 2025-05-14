@@ -71,10 +71,9 @@ class AutoEncoder:
 
     def adapt_kl_loss(self, epoch):
         # adaptive kl_loss_weight based on difference with half the reconstruction loss
-        current_rec = self.loss_dict['rec_loss'][-1]
-        current_kl = self.loss_dict['reg_loss'][-1]
-
         if epoch > 1:
+            current_rec = self.loss_dict['rec_loss'][-1]
+            current_kl = self.loss_dict['reg_loss'][-1]
             # define the epoch that we want the kl loss to reach the maximum value: at 3/4 of training
             target_epoch = int(0.75 * self.config['n_epochs'])
             remaining_epochs = max(target_epoch - epoch, 1)
