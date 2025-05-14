@@ -679,8 +679,8 @@ def create_config_dict(nnunet_config_dict, input_channels, n_epochs_multiplier, 
 
     # if batch size and patch size get large, use gradient accumulation
     if math.prod(patch_size + [ae_batch_size]) > 2e+6:
-        ae_batch_size /= 2
-        ddpm_batch_size /= 2
+        ae_batch_size //= 2
+        ddpm_batch_size //= 2
         grad_accumulate_step *= 2
         print("We will use 2 gradient accumulation steps while training.")
 
