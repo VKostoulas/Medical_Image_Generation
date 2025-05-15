@@ -71,24 +71,34 @@ class AutoEncoder:
 
     def adapt_kl_loss(self, epoch):
         # adaptive kl_loss_weight based on difference with half the reconstruction loss
-        if epoch > 1:
-            current_rec = self.loss_dict['rec_loss'][-1]
+        if epoch == 2:
             current_kl = self.loss_dict['reg_loss'][-1]
-            # define the epoch that we want the kl loss to reach the maximum value: at 3/4 of training
-            target_epoch = int(0.75 * self.config['n_epochs'])
-            remaining_epochs = max(target_epoch - epoch, 1)
-            # current weight
             w_current = self.config['kl_weight']
-            # desired weight so that w*kl = rec/2
-            w_target = (current_rec / 2.0) / (current_kl / w_current)
-
-            r = (w_target / w_current) ** (1.0 / remaining_epochs)
-            w_new = w_current * r
-            # if kl loss gets bigger than reconstruction loss, clamp it
-            w_new = min(w_new, w_target)
-
-            self.config['kl_weight'] = w_new
+            target_kl = 5e-3
+            new_kl_w = target_kl / (current_kl / w_current)
+            self.config['kl_weight'] = new_kl_w
             print(f"KL loss weight updated: {self.config['kl_weight']}")
+
+    # def adapt_kl_loss(self, epoch):
+    #     # adaptive kl_loss_weight based on difference with half the reconstruction loss
+    #     if epoch > 1:
+    #         current_rec = self.loss_dict['rec_loss'][-1]
+    #         current_kl = self.loss_dict['reg_loss'][-1]
+    #         # define the epoch that we want the kl loss to reach the maximum value: at 3/4 of training
+    #         target_epoch = int(0.75 * self.config['n_epochs'])
+    #         remaining_epochs = max(target_epoch - epoch, 1)
+    #         # current weight
+    #         w_current = self.config['kl_weight']
+    #         # desired weight so that w*kl = rec/2
+    #         w_target = (current_rec / 2.0) / (current_kl / w_current)
+    #
+    #         r = (w_target / w_current) ** (1.0 / remaining_epochs)
+    #         w_new = w_current * r
+    #         # if kl loss gets bigger than reconstruction loss, clamp it
+    #         w_new = min(w_new, w_target)
+    #
+    #         self.config['kl_weight'] = w_new
+    #         print(f"KL loss weight updated: {self.config['kl_weight']}")
 
     # def adapt_kl_loss(self, epoch):
     #     # adaptive kl_loss_weight based on difference with half the reconstruction loss
