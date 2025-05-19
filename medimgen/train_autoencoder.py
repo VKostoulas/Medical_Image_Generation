@@ -71,18 +71,18 @@ class AutoEncoder:
 
     def adapt_kl_loss(self, epoch):
         # adaptive kl_loss_weight based on difference with half the reconstruction loss
-
-        # growth factor so that maximum kl weight value is reached around half of the training:
-        # (max_allowed_kl_loss_weight_value / initial_kl_loss_weight_value)^(1/half_epochs)
-        # with max_allowed_kl_loss_weight_value = 1e-4 and initial_kl_loss_weight_value = 1e-10
-        # --> (1e-4 / 1e-10)^(1/half_epochs) = 10^(6/half_epochs)
-        gf = 10 ** (6 / (self.config['n_epochs'] // 2))
-
         if epoch > 1:
             current_rec = self.loss_dict['rec_loss'][-1]
 
             w_current = self.config['kl_weight']
             current_kl = self.loss_dict['reg_loss'][-1]
+
+            # growth factor so that maximum kl weight value is reached around half of the training:
+            # (max_allowed_kl_loss_weight_value / initial_kl_loss_weight_value)^(1/half_epochs)
+            # with max_allowed_kl_loss_weight_value = (rec_loss / kl_loss) and initial_kl_loss_weight_value = 1e-10
+            # --> (1e-4 / 1e-10)^(1/half_epochs) = 10^(6/half_epochs)
+            # gf = 10 ** (6 / (self.config['n_epochs'] // 2))
+            gf = ((current_rec / (current_kl / w_current)) / 1e-10)^(1 / (self.config['n_epochs'] // 2))
 
             # adaptive direction based on reconstruction loss / 2
             if current_kl < current_rec / 2:
