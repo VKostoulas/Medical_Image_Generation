@@ -82,7 +82,7 @@ class AutoEncoder:
             # with max_allowed_kl_loss_weight_value = (rec_loss / kl_loss) and initial_kl_loss_weight_value = 1e-10
             # --> (1e-4 / 1e-10)^(1/half_epochs) = 10^(6/half_epochs)
             # gf = 10 ** (6 / (self.config['n_epochs'] // 2))
-            gf = ((current_rec / (current_kl / w_current)) / 1e-10)^(1 / (self.config['n_epochs'] // 2))
+            gf = ((current_rec / (current_kl / w_current)) / 1e-10)**(1 / (self.config['n_epochs'] // 2))
 
             # adaptive direction based on reconstruction loss / 2
             if current_kl < current_rec / 2:
