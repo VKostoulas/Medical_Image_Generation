@@ -14,7 +14,6 @@ import traceback
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
-import torch.nn.functional as F
 
 from io import BytesIO
 from PIL import Image
@@ -181,6 +180,37 @@ class AutoEncoder:
     #     self.config['kl_weight'] = kl_weight
     #     print(f"KL loss weight updated: {self.config['kl_weight']}")
 
+    def tune_kl_loss_weight(self, reconstruction_loss, kl_loss):
+        """
+        Dynamically adjusts KL loss weight based on its relative scale to the reconstruction loss.
+        Updates self.config['kl_weight'] in-place.
+        """
+        increase_factor = 1.05  # Slow upward adjustment
+        reduction_factor = 0.95  # Faster downward adjustment
+        min_weight = 1e-9
+        max_weight = 1e-6
+
+        # Initialize kl_weight if not set
+        # if 'kl_weight' not in self.config or self.config['kl_weight'] is None:
+        #     self.config['kl_weight'] = min_weight + (max_weight - min_weight) / 2
+
+        kl_weight = self.config['kl_weight']
+        kl_value = kl_loss.item()
+        rec_value = reconstruction_loss.item()
+
+        max_frac = 0.1
+        min_frac = 0.001
+
+        if kl_value > rec_value * max_frac:
+            kl_weight *= reduction_factor
+        elif kl_value < rec_value * min_frac:
+            kl_weight *= increase_factor
+
+        # Clamp to avoid extremes
+        kl_weight = max(min(kl_weight, max_weight), min_weight)
+
+        self.config['kl_weight'] = kl_weight
+
     def train_one_epoch(self, epoch, train_loader, discriminator, perceptual_loss, optimizer_g, optimizer_d, scaler_g,
                         scaler_d):
         self.autoencoder.train()
@@ -217,6 +247,8 @@ class AutoEncoder:
             for key in epoch_loss_dict:
                 print_string +=  f" - {key}: {epoch_loss_dict[key]:.4f}"
             print(print_string)
+
+        print(f"KL loss weight: {self.config['kl_weight']}")
 
         for key in epoch_loss_dict:
             self.loss_dict[key].append(epoch_loss_dict[key])
@@ -265,10 +297,7 @@ class AutoEncoder:
                 step_loss_dict['reg_loss'] = self.get_kl_loss(z_mu, z_sigma) * self.config['kl_weight']
 
             step_loss_dict['rec_loss'] = self.l1_loss(reconstructions.float(), images.float())
-            # clamp the kl loss if it gets bigger than reconstruction loss * 0.1
-            step_loss_dict['reg_loss'] = step_loss_dict['reg_loss'] - F.relu(step_loss_dict['reg_loss'] - step_loss_dict['rec_loss'] * 0.1)
-            # step_loss_dict['reg_loss'] = (step_loss_dict['reg_loss'] / (step_loss_dict['rec_loss'] + 1e-8)).clamp(
-            #     max=0.1) * step_loss_dict['rec_loss']
+            self.tune_kl_loss_weight(reconstruction_loss=step_loss_dict['rec_loss'], kl_loss=step_loss_dict['reg_loss'])
             step_loss_dict['perc_loss'] = perceptual_loss(reconstructions.float(), images.float()) * self.config['perc_weight']
             loss_g = step_loss_dict['rec_loss'] + step_loss_dict['perc_loss'] + step_loss_dict['reg_loss']
 
