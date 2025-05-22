@@ -237,7 +237,7 @@ class AutoEncoder:
         total_kl_loss = total_kl_loss / len(train_loader)
 
         # set kl weight so that average kl loss starts at 20% of average rec loss
-        self.config['kl_weight'] = (0.2 * total_rec_loss) / total_kl_loss
+        self.config['kl_weight'] = (0.01 * total_rec_loss) / total_kl_loss
         print(f"KL loss weight set to: {self.config['kl_weight']}")
 
     def train_one_epoch(self, epoch, train_loader, discriminator, perceptual_loss, optimizer_g, optimizer_d, scaler_g,
