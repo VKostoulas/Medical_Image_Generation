@@ -553,7 +553,7 @@ class LDM:
                 print(f"Adjusting learning rate to {lr_scheduler.get_last_lr()[0]:.4e}.")
 
         total_time = time.time() - total_start
-        print(f"Training completed in {total_time:.2f} seconds.")
+        print(f"Total training time: {time.strftime('%H:%M:%S', time.gmtime(total_time))}")
 
     def train(self, train_loader, val_loader):
         temp_dir = tempfile.mkdtemp()

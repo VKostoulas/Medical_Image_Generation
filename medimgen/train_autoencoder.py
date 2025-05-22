@@ -10,8 +10,10 @@ import glob
 import torch
 import time
 import pickle
+import shutil
 import traceback
 import argparse
+import tempfile
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -247,8 +249,6 @@ class AutoEncoder:
             for key in epoch_loss_dict:
                 print_string +=  f" - {key}: {epoch_loss_dict[key]:.4f}"
             print(print_string)
-
-        print(f"KL loss weight: {self.config['kl_weight']}")
 
         for key in epoch_loss_dict:
             self.loss_dict[key].append(epoch_loss_dict[key])
@@ -523,6 +523,11 @@ class AutoEncoder:
         print(f"Total training time: {time.strftime('%H:%M:%S', time.gmtime(total_time))}")
 
     def train(self, train_loader, val_loader):
+        temp_dir = tempfile.mkdtemp()
+        print(f"Using temp directory: {temp_dir}")
+        os.environ["TMPDIR"] = temp_dir
+        tempfile.tempdir = temp_dir
+
         # unpack .npz files to .npy
         train_loader.dataset.unpack_dataset()
 
@@ -538,6 +543,8 @@ class AutoEncoder:
             not_clean = True
             while not_clean:
                 try:
+                    shutil.rmtree(temp_dir)
+                    print(f"Temp directory {temp_dir} removed.")
                     train_loader.dataset.pack_dataset()
                     not_clean = False
                 except BaseException:
