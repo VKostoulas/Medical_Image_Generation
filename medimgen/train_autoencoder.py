@@ -95,15 +95,15 @@ class AutoEncoder:
     #         self.config['kl_weight'] = w_new
     #         print(f"KL loss weight updated: {self.config['kl_weight']}")
 
-    def adapt_kl_loss(self, epoch):
-        # adaptive kl_loss_weight based on difference with half the reconstruction loss
-        if epoch == 2:
-            current_kl = self.loss_dict['reg_loss'][-1]
-            w_current = self.config['kl_weight']
-            target_kl = 5e-3
-            new_kl_w = target_kl / (current_kl / w_current)
-            self.config['kl_weight'] = new_kl_w
-            print(f"KL loss weight updated: {self.config['kl_weight']}")
+    # def adapt_kl_loss(self, epoch):
+    #     # adaptive kl_loss_weight based on difference with half the reconstruction loss
+    #     if epoch == 2:
+    #         current_kl = self.loss_dict['reg_loss'][-1]
+    #         w_current = self.config['kl_weight']
+    #         target_kl = 5e-3
+    #         new_kl_w = target_kl / (current_kl / w_current)
+    #         self.config['kl_weight'] = new_kl_w
+    #         print(f"KL loss weight updated: {self.config['kl_weight']}")
 
     # def adapt_kl_loss(self, epoch):
     #     # adaptive kl_loss_weight based on difference with half the reconstruction loss
@@ -182,36 +182,62 @@ class AutoEncoder:
     #     self.config['kl_weight'] = kl_weight
     #     print(f"KL loss weight updated: {self.config['kl_weight']}")
 
-    def tune_kl_loss_weight(self, reconstruction_loss, kl_loss):
-        """
-        Dynamically adjusts KL loss weight based on its relative scale to the reconstruction loss.
-        Updates self.config['kl_weight'] in-place.
-        """
-        increase_factor = 1.05  # Slow upward adjustment
-        reduction_factor = 0.95  # Faster downward adjustment
-        min_weight = 1e-9
-        max_weight = 1e-6
+    # def tune_kl_loss_weight(self, reconstruction_loss, kl_loss):
+    #     """
+    #     Dynamically adjusts KL loss weight based on its relative scale to the reconstruction loss.
+    #     Updates self.config['kl_weight'] in-place.
+    #     """
+    #     increase_factor = 1.05  # Slow upward adjustment
+    #     reduction_factor = 0.95  # Faster downward adjustment
+    #     min_weight = 1e-9
+    #     max_weight = 1e-6
+    #
+    #     # Initialize kl_weight if not set
+    #     # if 'kl_weight' not in self.config or self.config['kl_weight'] is None:
+    #     #     self.config['kl_weight'] = min_weight + (max_weight - min_weight) / 2
+    #
+    #     kl_weight = self.config['kl_weight']
+    #     kl_value = kl_loss.item()
+    #     rec_value = reconstruction_loss.item()
+    #
+    #     max_frac = 0.1
+    #     min_frac = 0.001
+    #
+    #     if kl_value > rec_value * max_frac:
+    #         kl_weight *= reduction_factor
+    #     elif kl_value < rec_value * min_frac:
+    #         kl_weight *= increase_factor
+    #
+    #     # Clamp to avoid extremes
+    #     kl_weight = max(min(kl_weight, max_weight), min_weight)
+    #
+    #     self.config['kl_weight'] = kl_weight
 
-        # Initialize kl_weight if not set
-        # if 'kl_weight' not in self.config or self.config['kl_weight'] is None:
-        #     self.config['kl_weight'] = min_weight + (max_weight - min_weight) / 2
+    def adapt_kl_loss_weight(self, val_loader):
+        self.autoencoder.eval()
+        total_rec_loss = 0
+        total_kl_loss = 0
+        disable_prog_bar = self.config['output_mode'] == 'log' or not self.config['progress_bar']
 
-        kl_weight = self.config['kl_weight']
-        kl_value = kl_loss.item()
-        rec_value = reconstruction_loss.item()
+        with tqdm(enumerate(val_loader), total=len(val_loader), ncols=100, disable=disable_prog_bar, file=sys.stdout) as val_progress_bar:
+            for step, batch in val_progress_bar:
+                images = batch["image"].to(self.device)
 
-        max_frac = 0.1
-        min_frac = 0.001
+                with torch.no_grad():
+                    with autocast(enabled=True):
+                        reconstructions, z_mu, z_sigma = self.autoencoder(images)
+                        kl_loss = self.get_kl_loss(z_mu, z_sigma)
+                        rec_loss = self.l1_loss(reconstructions.float(), images.float())
+                total_rec_loss += rec_loss.item()
+                total_kl_loss += kl_loss.item()
+                val_progress_bar.set_postfix({"rec_loss": total_rec_loss / (step + 1), "kl_loss": total_kl_loss / (step + 1)})
 
-        if kl_value > rec_value * max_frac:
-            kl_weight *= reduction_factor
-        elif kl_value < rec_value * min_frac:
-            kl_weight *= increase_factor
+        total_rec_loss = total_rec_loss / len(val_loader)
+        total_kl_loss = total_kl_loss / len(val_loader)
 
-        # Clamp to avoid extremes
-        kl_weight = max(min(kl_weight, max_weight), min_weight)
-
-        self.config['kl_weight'] = kl_weight
+        # set kl weight so that average kl loss starts at 20% of average rec loss
+        self.config['kl_weight'] = (0.2 * total_rec_loss) / total_kl_loss
+        print(f"KL loss weight set to: {self.config['kl_weight']}")
 
     def train_one_epoch(self, epoch, train_loader, discriminator, perceptual_loss, optimizer_g, optimizer_d, scaler_g,
                         scaler_d):
@@ -219,7 +245,7 @@ class AutoEncoder:
         discriminator.train()
         epoch_loss_dict = {'rec_loss': 0, 'reg_loss': 0, 'gen_loss': 0, 'disc_loss': 0, 'perc_loss': 0}
         disable_prog_bar = self.config['output_mode'] == 'log' or not self.config['progress_bar']
-        self.adapt_kl_loss(epoch)
+        # self.adapt_kl_loss(epoch)
         start = time.time()
 
         with tqdm(enumerate(train_loader), total=len(train_loader), ncols=150, disable=disable_prog_bar, file=sys.stdout) as progress_bar:
@@ -486,6 +512,8 @@ class AutoEncoder:
         perceptual_loss = PerceptualLoss(**self.config['perceptual_params']).to(self.device)
 
         optimizer_g, optimizer_d, g_lr_scheduler, d_lr_scheduler = self.get_optimizers_and_lr_schedules(discriminator)
+
+        self.adapt_kl_loss_weight(val_loader)
 
         if self.config['load_model_path']:
             start_epoch = self.load_model(self.config['load_model_path'], optimizer=optimizer_g, scheduler=g_lr_scheduler,

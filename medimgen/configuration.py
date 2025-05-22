@@ -524,7 +524,7 @@ def create_autoencoder_dict(nnunet_config_dict, input_channels, spatial_dims):
     vae_dict = {'spatial_dims': spatial_dims,
                 'in_channels': len(input_channels),
                 'out_channels': len(input_channels),
-                'latent_channels': 3,
+                'latent_channels': 8,
                 'num_res_blocks': 2,
                 'with_encoder_nonlocal_attn': False,
                 'with_decoder_nonlocal_attn': False,
@@ -545,9 +545,9 @@ def create_autoencoder_dict(nnunet_config_dict, input_channels, spatial_dims):
     # when 2 layers are more than needed? when latent size after 1 downsamplings is <= 32 --> patch_size <= 64
     # for max image size 100, 2 ae layers --> latent size 25 --> good
     # for max image size 64, 1 ae layer --> latent size 32 --> good
-    if np.max(nnunet_config_dict['patch_size']) <= 32:
+    if np.max(nnunet_config_dict['patch_size']) <= 64:
         vae_n_layers = 1
-    elif np.max(nnunet_config_dict['patch_size']) <= 128:
+    elif np.max(nnunet_config_dict['patch_size']) <= 256:
         vae_n_layers = 2
     else:
         vae_n_layers = 3
@@ -576,16 +576,16 @@ def create_ddpm_dict(nnunet_config_dict, spatial_dims):
     strides = nnunet_config_dict['architecture']['arch_kwargs']['strides']
 
     ddpm_dict = {'spatial_dims': spatial_dims,
-                 'in_channels': 3,
-                 'out_channels': 3,
+                 'in_channels': 8,
+                 'out_channels': 8,
                  'num_res_blocks': 2,
                  'use_flash_attention': False,
                 }
 
     # check create_autoencoder_dict
-    if np.max(nnunet_config_dict['patch_size']) <= 32:
+    if np.max(nnunet_config_dict['patch_size']) <= 64:
         vae_n_layers = 1
-    elif np.max(nnunet_config_dict['patch_size']) <= 128:
+    elif np.max(nnunet_config_dict['patch_size']) <= 256:
         vae_n_layers = 2
     else:
         vae_n_layers = 3
@@ -707,7 +707,7 @@ def create_config_dict(nnunet_config_dict, input_channels, n_epochs_multiplier, 
         # 'weight_decay': 3e-5,
         'd_learning_rate': 1e-4,
         'autoencoder_warm_up_epochs': 5,
-        'kl_weight': 1e-8,
+        'kl_weight': 1e-9,
         'adv_weight': 0.05,
         'perc_weight': 0.5,
         'vae_params': autoencoder_dict,
