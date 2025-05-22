@@ -69,39 +69,39 @@ class AutoEncoder:
         kl_loss = torch.sum(kl_loss, dim=spatial_dims)
         return torch.sum(kl_loss) / kl_loss.shape[0]
 
-    def adapt_kl_loss(self, epoch):
-        # adaptive kl_loss_weight based on difference with half the reconstruction loss
-        if epoch > 1:
-            current_rec = self.loss_dict['rec_loss'][-1]
-
-            w_current = self.config['kl_weight']
-            current_kl = self.loss_dict['reg_loss'][-1]
-
-            # growth factor so that maximum kl weight value is reached around half of the training:
-            # (max_allowed_kl_loss_weight_value / initial_kl_loss_weight_value)^(1/half_epochs)
-            # with max_allowed_kl_loss_weight_value = (rec_loss / kl_loss) and initial_kl_loss_weight_value = 1e-10
-            # --> (1e-4 / 1e-10)^(1/half_epochs) = 10^(6/half_epochs)
-            # gf = 10 ** (6 / (self.config['n_epochs'] // 2))
-            gf = ((current_rec / (current_kl / w_current)) / 1e-10)**(1 / (self.config['n_epochs'] // 2))
-
-            # adaptive direction based on reconstruction loss / 2
-            if current_kl < current_rec / 2:
-                w_new = w_current * gf
-            else:
-                w_new = w_current / gf
-
-            self.config['kl_weight'] = w_new
-            print(f"KL loss weight updated: {self.config['kl_weight']}")
-
     # def adapt_kl_loss(self, epoch):
     #     # adaptive kl_loss_weight based on difference with half the reconstruction loss
-    #     if epoch == 2:
-    #         current_kl = self.loss_dict['reg_loss'][-1]
+    #     if epoch > 1:
+    #         current_rec = self.loss_dict['rec_loss'][-1]
+    #
     #         w_current = self.config['kl_weight']
-    #         target_kl = 5e-3
-    #         new_kl_w = target_kl / (current_kl / w_current)
-    #         self.config['kl_weight'] = new_kl_w
+    #         current_kl = self.loss_dict['reg_loss'][-1]
+    #
+    #         # growth factor so that maximum kl weight value is reached around half of the training:
+    #         # (max_allowed_kl_loss_weight_value / initial_kl_loss_weight_value)^(1/half_epochs)
+    #         # with max_allowed_kl_loss_weight_value = (rec_loss / kl_loss) and initial_kl_loss_weight_value = 1e-10
+    #         # --> (1e-4 / 1e-10)^(1/half_epochs) = 10^(6/half_epochs)
+    #         # gf = 10 ** (6 / (self.config['n_epochs'] // 2))
+    #         gf = ((current_rec / (current_kl / w_current)) / 1e-10)**(1 / (self.config['n_epochs'] // 2))
+    #
+    #         # adaptive direction based on reconstruction loss / 2
+    #         if current_kl < current_rec / 2:
+    #             w_new = w_current * gf
+    #         else:
+    #             w_new = w_current / gf
+    #
+    #         self.config['kl_weight'] = w_new
     #         print(f"KL loss weight updated: {self.config['kl_weight']}")
+
+    def adapt_kl_loss(self, epoch):
+        # adaptive kl_loss_weight based on difference with half the reconstruction loss
+        if epoch == 2:
+            current_kl = self.loss_dict['reg_loss'][-1]
+            w_current = self.config['kl_weight']
+            target_kl = 5e-3
+            new_kl_w = target_kl / (current_kl / w_current)
+            self.config['kl_weight'] = new_kl_w
+            print(f"KL loss weight updated: {self.config['kl_weight']}")
 
     # def adapt_kl_loss(self, epoch):
     #     # adaptive kl_loss_weight based on difference with half the reconstruction loss
@@ -217,7 +217,7 @@ class AutoEncoder:
         discriminator.train()
         epoch_loss_dict = {'rec_loss': 0, 'reg_loss': 0, 'gen_loss': 0, 'disc_loss': 0, 'perc_loss': 0}
         disable_prog_bar = self.config['output_mode'] == 'log' or not self.config['progress_bar']
-        # self.adapt_kl_loss(epoch)
+        self.adapt_kl_loss(epoch)
         start = time.time()
 
         with tqdm(enumerate(train_loader), total=len(train_loader), ncols=150, disable=disable_prog_bar, file=sys.stdout) as progress_bar:
@@ -297,7 +297,7 @@ class AutoEncoder:
                 step_loss_dict['reg_loss'] = self.get_kl_loss(z_mu, z_sigma) * self.config['kl_weight']
 
             step_loss_dict['rec_loss'] = self.l1_loss(reconstructions.float(), images.float())
-            self.tune_kl_loss_weight(reconstruction_loss=step_loss_dict['rec_loss'], kl_loss=step_loss_dict['reg_loss'])
+            # self.tune_kl_loss_weight(reconstruction_loss=step_loss_dict['rec_loss'], kl_loss=step_loss_dict['reg_loss'])
             step_loss_dict['perc_loss'] = perceptual_loss(reconstructions.float(), images.float()) * self.config['perc_weight']
             loss_g = step_loss_dict['rec_loss'] + step_loss_dict['perc_loss'] + step_loss_dict['reg_loss']
 
