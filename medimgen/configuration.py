@@ -519,6 +519,13 @@ def create_autoencoder_dict(nnunet_config_dict, input_channels, spatial_dims):
     kernel_sizes = nnunet_config_dict['architecture']['arch_kwargs']['kernel_sizes']
     strides = nnunet_config_dict['architecture']['arch_kwargs']['strides']
 
+    median_image_size = nnunet_config_dict['median_image_size_in_voxels']
+
+    # For 3D, for each axis, use as size the closest multiple of 2, 3, or 7 by 2, to the corresponding size of nnunet median patch size
+    valid_sizes = [32, 48, 56, 64, 96, 112, 128, 192, 224, 256, 384, 448, 512]
+    patch_size_3d = [min(valid_sizes, key=lambda x: abs(x - size)) for size in median_image_size]
+    patch_size = nnunet_config_dict['patch_size'] if spatial_dims == 2 else patch_size_3d
+
     base_autoencoder_channels = [32, 64, 128, 128]
 
     vae_dict = {'spatial_dims': spatial_dims,
@@ -545,9 +552,9 @@ def create_autoencoder_dict(nnunet_config_dict, input_channels, spatial_dims):
     # when 2 layers are more than needed? when latent size after 1 downsamplings is <= 32 --> patch_size <= 64
     # for max image size 100, 2 ae layers --> latent size 25 --> good
     # for max image size 64, 1 ae layer --> latent size 32 --> good
-    if np.max(nnunet_config_dict['patch_size']) <= 64:
+    if np.max(patch_size) <= 64:
         vae_n_layers = 1
-    elif np.max(nnunet_config_dict['patch_size']) <= 256:
+    elif np.max(patch_size) <= 256:
         vae_n_layers = 2
     else:
         vae_n_layers = 3
@@ -575,6 +582,13 @@ def create_ddpm_dict(nnunet_config_dict, spatial_dims):
     kernel_sizes = nnunet_config_dict['architecture']['arch_kwargs']['kernel_sizes']
     strides = nnunet_config_dict['architecture']['arch_kwargs']['strides']
 
+    median_image_size = nnunet_config_dict['median_image_size_in_voxels']
+
+    # For 3D, for each axis, use as size the closest multiple of 2, 3, or 7 by 2, to the corresponding size of nnunet median patch size
+    valid_sizes = [32, 48, 56, 64, 96, 112, 128, 192, 224, 256, 384, 448, 512]
+    patch_size_3d = [min(valid_sizes, key=lambda x: abs(x - size)) for size in median_image_size]
+    patch_size = nnunet_config_dict['patch_size'] if spatial_dims == 2 else patch_size_3d
+
     ddpm_dict = {'spatial_dims': spatial_dims,
                  'in_channels': 8,
                  'out_channels': 8,
@@ -583,9 +597,9 @@ def create_ddpm_dict(nnunet_config_dict, spatial_dims):
                 }
 
     # check create_autoencoder_dict
-    if np.max(nnunet_config_dict['patch_size']) <= 64:
+    if np.max(patch_size) <= 64:
         vae_n_layers = 1
-    elif np.max(nnunet_config_dict['patch_size']) <= 256:
+    elif np.max(patch_size) <= 256:
         vae_n_layers = 2
     else:
         vae_n_layers = 3
