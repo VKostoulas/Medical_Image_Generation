@@ -237,9 +237,14 @@ class AutoEncoder:
         total_kl_loss = total_kl_loss / len(train_loader)
 
         # set kl weight so that average kl loss starts at 20% of average rec loss
-        kl_weight_unfiltered = (0.002 * total_rec_loss) / total_kl_loss
-        # select the closest kl weight to fixed kl weights
-        kl_weight_filtered = min([1e-8, 5e-8, 1e-7, 5e-7, 1e-6], key=lambda x: abs(x - kl_weight_unfiltered))
+        kl_weight_unfiltered = (0.0025 * total_rec_loss) / total_kl_loss
+
+        # quantize kl loss weight
+        log_kl_weight_unfiltered = np.log10(kl_weight_unfiltered)
+        weight_candidates = [1e-8, 5e-8, 1e-7, 5e-7, 1e-6]
+        log_candidates = np.log10(weight_candidates)
+        kl_weight_filtered = weight_candidates[np.argmin(np.abs(log_candidates - log_kl_weight_unfiltered))]
+
         self.config['kl_weight'] = kl_weight_filtered
         print(f"Unfiltered KL loss weight: {kl_weight_unfiltered}")
         print(f"KL loss weight set to: {self.config['kl_weight']}")
