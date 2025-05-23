@@ -213,14 +213,14 @@ class AutoEncoder:
     #
     #     self.config['kl_weight'] = kl_weight
 
-    def adapt_kl_loss_weight(self, train_loader):
+    def adapt_kl_loss_weight(self, val_loader):
         print('Setting KL loss weight...')
         self.autoencoder.eval()
         total_rec_loss = 0
         total_kl_loss = 0
         disable_prog_bar = self.config['output_mode'] == 'log' or not self.config['progress_bar']
 
-        with tqdm(enumerate(train_loader), total=len(train_loader), ncols=100, disable=disable_prog_bar, file=sys.stdout) as val_progress_bar:
+        with tqdm(enumerate(val_loader), total=len(val_loader), ncols=100, disable=disable_prog_bar, file=sys.stdout) as val_progress_bar:
             for step, batch in val_progress_bar:
                 images = batch["image"].to(self.device)
 
@@ -233,8 +233,8 @@ class AutoEncoder:
                 total_kl_loss += kl_loss.item()
                 val_progress_bar.set_postfix({"rec_loss": total_rec_loss / (step + 1), "kl_loss": total_kl_loss / (step + 1)})
 
-        total_rec_loss = total_rec_loss / len(train_loader)
-        total_kl_loss = total_kl_loss / len(train_loader)
+        total_rec_loss = total_rec_loss / len(val_loader)
+        total_kl_loss = total_kl_loss / len(val_loader)
 
         # set kl weight so that average kl loss starts at 0.2% of average rec loss
         kl_weight_raw = (0.002 * total_rec_loss) / total_kl_loss
@@ -518,7 +518,7 @@ class AutoEncoder:
 
         optimizer_g, optimizer_d, g_lr_scheduler, d_lr_scheduler = self.get_optimizers_and_lr_schedules(discriminator)
 
-        self.adapt_kl_loss_weight(train_loader)
+        self.adapt_kl_loss_weight(val_loader)
 
         if self.config['load_model_path']:
             start_epoch = self.load_model(self.config['load_model_path'], optimizer=optimizer_g, scheduler=g_lr_scheduler,
