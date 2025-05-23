@@ -241,6 +241,7 @@ class AutoEncoder:
         # select the closest kl weight to fixed kl weights
         kl_weight_filtered = min([1e-8, 5e-8, 1e-7, 5e-7, 1e-6], key=lambda x: abs(x - kl_weight_unfiltered))
         self.config['kl_weight'] = kl_weight_filtered
+        print(f"Unfiltered KL loss weight: {kl_weight_unfiltered}")
         print(f"KL loss weight set to: {self.config['kl_weight']}")
 
     def train_one_epoch(self, epoch, train_loader, discriminator, perceptual_loss, optimizer_g, optimizer_d, scaler_g,
