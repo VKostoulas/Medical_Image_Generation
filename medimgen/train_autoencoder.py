@@ -236,8 +236,8 @@ class AutoEncoder:
         total_rec_loss = total_rec_loss / len(val_loader)
         total_kl_loss = total_kl_loss / len(val_loader)
 
-        # set kl weight so that average kl loss starts at 1% of average rec loss
-        kl_weight_raw = (0.01 * total_rec_loss) / total_kl_loss
+        # this is tuned on Brain Tumour
+        kl_weight_raw = (0.0001 * np.log(10 + total_rec_loss)) / total_kl_loss
         # quantize the kl loss weight
         kl_weight_quantized = min([1e-8, 1e-7, 1e-6], key=lambda x: abs(x - kl_weight_raw))
         self.config['kl_weight'] = kl_weight_quantized
