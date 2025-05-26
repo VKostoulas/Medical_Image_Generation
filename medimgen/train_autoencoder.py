@@ -213,6 +213,37 @@ class AutoEncoder:
     #
     #     self.config['kl_weight'] = kl_weight
 
+    # def adapt_kl_loss_weight(self, val_loader):
+    #     print('Setting KL loss weight...')
+    #     self.autoencoder.eval()
+    #     total_rec_loss = 0
+    #     total_kl_loss = 0
+    #     disable_prog_bar = self.config['output_mode'] == 'log' or not self.config['progress_bar']
+    #
+    #     with tqdm(enumerate(val_loader), total=len(val_loader), ncols=100, disable=disable_prog_bar, file=sys.stdout) as val_progress_bar:
+    #         for step, batch in val_progress_bar:
+    #             images = batch["image"].to(self.device)
+    #
+    #             with torch.no_grad():
+    #                 with autocast(enabled=True):
+    #                     reconstructions, z_mu, z_sigma = self.autoencoder(images)
+    #                     kl_loss = self.get_kl_loss(z_mu, z_sigma)
+    #                     rec_loss = self.l1_loss(reconstructions.float(), images.float())
+    #             total_rec_loss += rec_loss.item()
+    #             total_kl_loss += kl_loss.item()
+    #             val_progress_bar.set_postfix({"rec_loss": total_rec_loss / (step + 1), "kl_loss": total_kl_loss / (step + 1)})
+    #
+    #     total_rec_loss = total_rec_loss / len(val_loader)
+    #     total_kl_loss = total_kl_loss / len(val_loader)
+    #
+    #     # this is tuned on Brain Tumour
+    #     kl_weight_raw = (0.001 * np.log(10 + total_rec_loss)) / total_kl_loss
+    #     # quantize the kl loss weight
+    #     kl_weight_quantized = min([1e-8, 1e-7, 1e-6], key=lambda x: abs(x - kl_weight_raw))
+    #     self.config['kl_weight'] = kl_weight_quantized
+    #     print(f"Raw KL loss weight: {kl_weight_raw}")
+    #     print(f"KL loss weight set to: {self.config['kl_weight']}")
+
     def adapt_kl_loss_weight(self, val_loader):
         print('Setting KL loss weight...')
         self.autoencoder.eval()
@@ -220,7 +251,8 @@ class AutoEncoder:
         total_kl_loss = 0
         disable_prog_bar = self.config['output_mode'] == 'log' or not self.config['progress_bar']
 
-        with tqdm(enumerate(val_loader), total=len(val_loader), ncols=100, disable=disable_prog_bar, file=sys.stdout) as val_progress_bar:
+        with tqdm(enumerate(val_loader), total=len(val_loader), ncols=100, disable=disable_prog_bar,
+                  file=sys.stdout) as val_progress_bar:
             for step, batch in val_progress_bar:
                 images = batch["image"].to(self.device)
 
@@ -231,17 +263,20 @@ class AutoEncoder:
                         rec_loss = self.l1_loss(reconstructions.float(), images.float())
                 total_rec_loss += rec_loss.item()
                 total_kl_loss += kl_loss.item()
-                val_progress_bar.set_postfix({"rec_loss": total_rec_loss / (step + 1), "kl_loss": total_kl_loss / (step + 1)})
+                val_progress_bar.set_postfix(
+                    {"rec_loss": total_rec_loss / (step + 1), "kl_loss": total_kl_loss / (step + 1)})
 
-        total_rec_loss = total_rec_loss / len(val_loader)
         total_kl_loss = total_kl_loss / len(val_loader)
 
+        def decompose_to_base_and_exponent(x):
+            import math
+            exponent = math.floor(math.log10(abs(x)))
+            base = x / (10 ** exponent)
+            return base, exponent
+
+        kl_base, kl_exponent = decompose_to_base_and_exponent(total_kl_loss)
         # this is tuned on Brain Tumour
-        kl_weight_raw = (0.001 * np.log(10 + total_rec_loss)) / total_kl_loss
-        # quantize the kl loss weight
-        kl_weight_quantized = min([1e-8, 1e-7, 1e-6], key=lambda x: abs(x - kl_weight_raw))
-        self.config['kl_weight'] = kl_weight_quantized
-        print(f"Raw KL loss weight: {kl_weight_raw}")
+        self.config['kl_weight'] = 0.001 / (10 ** kl_exponent)
         print(f"KL loss weight set to: {self.config['kl_weight']}")
 
     def train_one_epoch(self, epoch, train_loader, discriminator, perceptual_loss, optimizer_g, optimizer_d, scaler_g,
