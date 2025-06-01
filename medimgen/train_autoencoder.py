@@ -245,7 +245,7 @@ class AutoEncoder:
     #     print(f"KL loss weight set to: {self.config['kl_weight']}")
 
     def adapt_kl_and_perceptual_loss_weights(self, val_loader, perceptual_loss):
-        print('Setting KL loss weight...')
+        print('Setting KL & Perceptual loss weights...')
         self.autoencoder.eval()
         total_rec_loss = 0
         total_kl_loss = 0
@@ -284,9 +284,14 @@ class AutoEncoder:
         self.config['kl_weight'] = 0.001 / (10 ** kl_exponent)
         print(f"KL loss weight set to: {self.config['kl_weight']}")
 
-        perc_weight_options = [1, 0.5, 0.1, 0.05, 0.01, 0.005, 0.001]
-        best_perc_weight = min(perc_weight_options, key=lambda w: abs(total_rec_loss - w * total_perc_loss))
-        self.config['perc_weight'] = best_perc_weight
+        perc_weight = 1
+        last_valid_perc_weight = perc_weight
+
+        while perc_weight * total_perc_loss >= total_rec_loss:
+            last_valid_perc_weight = perc_weight
+            perc_weight /= 2
+
+        self.config['perc_weight'] = last_valid_perc_weight
         print(f"Perceptual loss weight set to: {self.config['perc_weight']}")
 
 
