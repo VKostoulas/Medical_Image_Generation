@@ -286,7 +286,7 @@ class AutoEncoder:
 
         perc_weight = 1
         while not perc_weight * total_perc_loss < total_rec_loss:
-            perc_weight -= 0.1
+            perc_weight /= 2
 
         self.config['perc_weight'] = perc_weight
         print(f"Perceptual loss weight set to: {self.config['perc_weight']}")
