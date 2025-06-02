@@ -380,6 +380,9 @@ class MedicalDataset(Dataset):
         name = self.ids[sample_idx]
         image, properties = self.load_image(name)
 
+        # scale to 0-1
+        image = (image - image.min()) / (image.max() - image.min())
+
         # Decide if oversampling foreground is needed
         force_fg = self.oversampling_method(batch_idx)
 
@@ -402,8 +405,7 @@ class MedicalDataset(Dataset):
         image = torch.as_tensor(image).float()
         image = image.contiguous()
         image = self.transform(image)
-        # scale to 0-1
-        image = (image - image.min()) / (image.max() - image.min())
+
         # image = torch.squeeze(image, dim=0)
         return {'id': name, 'image': image}
 
