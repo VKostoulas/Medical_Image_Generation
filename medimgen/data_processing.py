@@ -314,39 +314,82 @@ class MedicalDataset(Dataset):
         return np.random.uniform() < self.oversample_foreground_percent
 
     # from nnunet
-    def get_bbox(self, data_shape, force_fg, class_locations):
-        """ Determines a bounding box for cropping a patch, ensuring balanced sampling. """
+    # def get_bbox(self, data_shape, force_fg, class_locations):
+    #     """ Determines a bounding box for cropping a patch, ensuring balanced sampling. """
+    #     dim = len(data_shape)
+    #     need_to_pad = self.need_to_pad.copy()
+    #
+    #     for d in range(dim):
+    #         # if case_all_data.shape + need_to_pad is still < patch size we need to pad more! We pad on both sides always
+    #         if need_to_pad[d] + data_shape[d] < self.initial_patch_size[d]:
+    #             need_to_pad[d] = self.initial_patch_size[d] - data_shape[d]
+    #
+    #     # we can now choose the bbox from -need_to_pad // 2 to shape - patch_size + need_to_pad // 2. Here we
+    #     # define what the upper and lower bound can be to then sample form them with np.random.randint
+    #     lbs = [-need_to_pad[i] // 2 for i in range(dim)]
+    #     ubs = [data_shape[i] + need_to_pad[i] // 2 + need_to_pad[i] % 2 - self.initial_patch_size[i] for i in range(dim)]
+    #
+    #     # Select a random location unless foreground oversampling is required
+    #     if not force_fg:
+    #         bbox_lbs = [np.random.randint(lbs[i], ubs[i] + 1) for i in range(dim)]
+    #     else:
+    #         assert class_locations is not None, 'if force_fg is set class_locations cannot be None'
+    #         eligible_classes_or_regions = [i for i in class_locations.keys() if len(class_locations[i]) > 0]
+    #         if len(eligible_classes_or_regions) == 0:
+    #             # this only happens if some image does not contain foreground voxels at all
+    #             # If the image does not contain any foreground classes, we fall back to random cropping
+    #             bbox_lbs = [np.random.randint(lbs[i], ubs[i] + 1) for i in range(dim)]
+    #         else:
+    #             selected_class = eligible_classes_or_regions[np.random.choice(len(eligible_classes_or_regions))]
+    #             voxels_of_that_class = class_locations[selected_class]
+    #             selected_voxel = voxels_of_that_class[np.random.choice(len(voxels_of_that_class))]
+    #             # selected voxel is center voxel. Subtract half the patch size to get lower bbox voxel.
+    #             # Make sure it is within the bounds of lb and ub
+    #             # i + 1 because we have first dimension 0!
+    #             bbox_lbs = [max(lbs[i], selected_voxel[i + 1] - self.initial_patch_size[i] // 2) for i in range(dim)]
+    #
+    #     bbox_ubs = [bbox_lbs[i] + self.initial_patch_size[i] for i in range(dim)]
+    #     return bbox_lbs, bbox_ubs
+
+    def get_bbox(self, data_shape, force_fg, class_locations, is_2d=False):
+        """
+        Computes a bounding box (lower and upper) for patch cropping.
+        Always center crops in H and W (y and x), random/fg sampling for slice/depth (z).
+        """
         dim = len(data_shape)
         need_to_pad = self.need_to_pad.copy()
 
         for d in range(dim):
-            # if case_all_data.shape + need_to_pad is still < patch size we need to pad more! We pad on both sides always
             if need_to_pad[d] + data_shape[d] < self.initial_patch_size[d]:
                 need_to_pad[d] = self.initial_patch_size[d] - data_shape[d]
 
-        # we can now choose the bbox from -need_to_pad // 2 to shape - patch_size + need_to_pad // 2. Here we
-        # define what the upper and lower bound can be to then sample form them with np.random.randint
         lbs = [-need_to_pad[i] // 2 for i in range(dim)]
-        ubs = [data_shape[i] + need_to_pad[i] // 2 + need_to_pad[i] % 2 - self.initial_patch_size[i] for i in range(dim)]
+        ubs = [data_shape[i] + need_to_pad[i] // 2 + need_to_pad[i] % 2 - self.initial_patch_size[i] for i in
+               range(dim)]
 
-        # Select a random location unless foreground oversampling is required
-        if not force_fg:
-            bbox_lbs = [np.random.randint(lbs[i], ubs[i] + 1) for i in range(dim)]
-        else:
-            assert class_locations is not None, 'if force_fg is set class_locations cannot be None'
-            eligible_classes_or_regions = [i for i in class_locations.keys() if len(class_locations[i]) > 0]
-            if len(eligible_classes_or_regions) == 0:
-                # this only happens if some image does not contain foreground voxels at all
-                # If the image does not contain any foreground classes, we fall back to random cropping
-                bbox_lbs = [np.random.randint(lbs[i], ubs[i] + 1) for i in range(dim)]
-            else:
-                selected_class = eligible_classes_or_regions[np.random.choice(len(eligible_classes_or_regions))]
-                voxels_of_that_class = class_locations[selected_class]
-                selected_voxel = voxels_of_that_class[np.random.choice(len(voxels_of_that_class))]
-                # selected voxel is center voxel. Subtract half the patch size to get lower bbox voxel.
-                # Make sure it is within the bounds of lb and ub
-                # i + 1 because we have first dimension 0!
-                bbox_lbs = [max(lbs[i], selected_voxel[i + 1] - self.initial_patch_size[i] // 2) for i in range(dim)]
+        # Default random bbox_lbs
+        bbox_lbs = [np.random.randint(lbs[i], ubs[i] + 1) for i in range(dim)]
+
+        if force_fg and class_locations is not None:
+            eligible_classes = [cls for cls in class_locations if len(class_locations[cls]) > 0]
+
+            if eligible_classes:
+                selected_class = np.random.choice(eligible_classes)
+                voxels = class_locations[selected_class]
+                selected_voxel = voxels[np.random.choice(len(voxels))]  # (z, y, x)
+
+                for i in range(dim):
+                    if is_2d and i == 0:
+                        bbox_lbs[0] = selected_voxel[0]  # slice index
+                    elif not is_2d:
+                        # 3D: all dims available; use voxel for z, keep y/x random for now
+                        bbox_lbs[i] = max(lbs[i], min(selected_voxel[i + 1] - self.initial_patch_size[i] // 2, ubs[i]))
+            # Else: fallback to original random values (already set)
+
+        # Overwrite H and W (last 2 dims) to be center-cropped
+        for i in range(dim - 2, dim):
+            center = data_shape[i] // 2
+            bbox_lbs[i] = center - self.initial_patch_size[i] // 2
 
         bbox_ubs = [bbox_lbs[i] + self.initial_patch_size[i] for i in range(dim)]
         return bbox_lbs, bbox_ubs
@@ -388,7 +431,7 @@ class MedicalDataset(Dataset):
 
         # Get bounding box for cropping
         shape = image.shape[1:]  # Remove channel dimension
-        bbox_lbs, bbox_ubs = self.get_bbox(shape, force_fg, properties['class_locations'])
+        bbox_lbs, bbox_ubs = self.get_bbox(shape, force_fg, properties['class_locations'], is_2d=self.patch_size[0] == 1)
         bbox = [[i, j] for i, j in zip(bbox_lbs, bbox_ubs)]
 
         image = crop_and_pad_nd(image, bbox, 0)
@@ -405,6 +448,8 @@ class MedicalDataset(Dataset):
         image = torch.as_tensor(image).float()
         image = image.contiguous()
         image = self.transform(image)
+
+        image = torch.clamp(image, min=0.0, max=1.0)
 
         # image = torch.squeeze(image, dim=0)
         return {'id': name, 'image': image}
