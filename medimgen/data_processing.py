@@ -7,6 +7,7 @@ import pickle
 import multiprocessing
 import numpy as np
 
+from functools import partial
 from batchgenerators.utilities.file_and_folder_operations import subfiles
 from torch.utils.data import Dataset, DataLoader, Sampler
 from sklearn.model_selection import KFold, train_test_split
@@ -192,13 +193,14 @@ class MedicalDataset(Dataset):
         self.patch_size = transformation_args["patch_size"]
 
         augmentation_params = self.configure_augmentation_params(heavy_augmentation=False)
-        rot_for_da, do_dummy_2d, initial_patch_size, mirror_axes, scale_range = augmentation_params
-        self.initial_patch_size = initial_patch_size if section == 'training' else self.patch_size
-
-        self.transformation_args['rot_for_da'] = rot_for_da if transformation_args['rotation'] else None
-        self.transformation_args['dummy_2d'] = do_dummy_2d if transformation_args['dummy_2d'] else None
-        self.transformation_args['mirror_axes'] = mirror_axes if transformation_args['mirror'] else None
-        self.transformation_args['scaling_range'] = scale_range if transformation_args['scaling'] else None
+        self.initial_patch_size = augmentation_params['initial_patch_size'] if section == 'training' else self.patch_size
+        self.transformation_args['rot_for_da'] = augmentation_params['rot_for_da'] if transformation_args['rotation'] else None
+        self.transformation_args['dummy_2d'] = augmentation_params['do_dummy_2d'] if transformation_args['dummy_2d'] else None
+        self.transformation_args['mirror_axes'] = augmentation_params['mirror_axes'] if transformation_args['mirror'] else None
+        self.transformation_args['scaling_range'] = augmentation_params['scale_range'] if transformation_args['scaling'] else None
+        self.transformation_args['brightness_range'] = augmentation_params['brightness_range'] if transformation_args['brightness'] else None
+        self.transformation_args['contrast_range'] = augmentation_params['contrast_range'] if transformation_args['contrast'] else None
+        self.transformation_args['gamma_range'] = augmentation_params['gamma_range'] if transformation_args['gamma'] else None
 
         # If we get a 2D patch size, make it pseudo 3D and remember to remove the singleton dimension before
         # returning the batch
@@ -260,7 +262,7 @@ class MedicalDataset(Dataset):
         final_shape /= min(scale_range)
         return final_shape.astype(int)
 
-    # from nnunet
+    # from nnunet adapted
     def configure_augmentation_params(self, heavy_augmentation=False):
         """
         Configures rotation-based data augmentation, determines if 2D augmentation is needed,
@@ -269,6 +271,7 @@ class MedicalDataset(Dataset):
         anisotropy_threshold = 3
         dim = len(self.patch_size)
 
+        # do what nnU-Net does
         if heavy_augmentation:
 
             if dim == 2:
@@ -286,22 +289,42 @@ class MedicalDataset(Dataset):
 
             # Compute the initial patch size, adjusting for rotation and scaling
             initial_patch_size = self.get_initial_patch_size(rot_x=rotation_for_DA, rot_y=rotation_for_DA,
-                                                             rot_z=rotation_for_DA, scale_range=(0.7, 1.4)) # Standard scale range used in nnU-Net
+                                                             rot_z=rotation_for_DA, scale_range=(0.7, 1.4))  # Standard scale range used in nnU-Net
 
             # If using 2D augmentation, force the depth dimension to remain unchanged
             if do_dummy_2d_data_aug:
                 initial_patch_size[0] = self.patch_size[0]
 
             scale_range = (0.7, 1.4)
+            brightness_range = (0.75, 1.25)
+            contrast_range = (0.75, 1.25)
+            gamma_range = (0.7, 1.5)
 
+        # soft augmentation for image generation training
         else:
-            rotation_for_DA = (-0.174533, 0.174533)
+            # rotation around z axis
+            def rot(rot_dim, image, dim):
+                if dim == rot_dim:
+                    return np.random.uniform(-0.174533, 0.174533)
+                else:
+                    return 0
+
+            rot_dim = 0 if dim == 3 else 2 if dim == 2 else None
+            rotation_for_DA = partial(rot, rot_dim)
             do_dummy_2d_data_aug = False
             initial_patch_size = self.patch_size
             mirror_axes = (2,) if dim == 3 else (1,)
-            scale_range = (0.85, 1.25)
+            scale_range = (0.9, 1.2)
+            brightness_range = (0.9, 1.2)
+            contrast_range = (0.9, 1.2)
+            gamma_range = (0.9, 1.2)
 
-        return rotation_for_DA, do_dummy_2d_data_aug, tuple(initial_patch_size), mirror_axes, scale_range
+        augmentation_dict = {'rot_for_da': rotation_for_DA, 'do_dummy_2d': do_dummy_2d_data_aug,
+                             'initial_patch_size': tuple(initial_patch_size), 'mirror_axes': mirror_axes,
+                             'scale_range': scale_range, 'brightness_range': brightness_range,
+                             'contrast_range': contrast_range, 'gamma_range': gamma_range}
+
+        return augmentation_dict
 
     # from nnunet
     def _oversample_last_XX_percent(self, sample_idx: int) -> bool:
@@ -376,11 +399,11 @@ class MedicalDataset(Dataset):
             if eligible_classes:
                 selected_class = np.random.choice(eligible_classes)
                 voxels = class_locations[selected_class]
-                selected_voxel = voxels[np.random.choice(len(voxels))]  # (z, y, x)
+                selected_voxel = voxels[np.random.choice(len(voxels))]  # (0, z, y, x)
 
                 for i in range(dim):
                     if is_2d and i == 0:
-                        bbox_lbs[0] = selected_voxel[0]  # slice index
+                        bbox_lbs[0] = selected_voxel[1]  # slice index
                     elif not is_2d:
                         # 3D: all dims available; use voxel for z, keep y/x random for now
                         bbox_lbs[i] = max(lbs[i], min(selected_voxel[i + 1] - self.initial_patch_size[i] // 2, ubs[i]))
@@ -423,8 +446,11 @@ class MedicalDataset(Dataset):
         name = self.ids[sample_idx]
         image, properties = self.load_image(name)
 
-        # scale to 0-1
-        image = (image - image.min()) / (image.max() - image.min())
+        # scale to 0-1 per channel
+        spatial_axes = tuple(range(1, image.ndim))
+        min_val = image.min(axis=spatial_axes, keepdims=True)
+        max_val = image.max(axis=spatial_axes, keepdims=True)
+        image = (image - min_val) / (max_val - min_val)
 
         # Decide if oversampling foreground is needed
         force_fg = self.oversampling_method(batch_idx)
@@ -652,7 +678,7 @@ def define_nnunet_transformations(params, validation=False):
         if params['brightness']:
             transforms.append(RandomTransform(
                 MultiplicativeBrightnessTransform(
-                    multiplier_range=BGContrast((0.75, 1.25)),
+                    multiplier_range=BGContrast(params['brightness_range']),
                     synchronize_channels=False,
                     p_per_channel=1
                 ), apply_probability=0.15
@@ -660,7 +686,7 @@ def define_nnunet_transformations(params, validation=False):
         if params['contrast']:
             transforms.append(RandomTransform(
                 ContrastTransform(
-                    contrast_range=BGContrast((0.75, 1.25)),
+                    contrast_range=BGContrast(params['contrast_range']),
                     preserve_range=True,
                     synchronize_channels=False,
                     p_per_channel=1
@@ -680,7 +706,7 @@ def define_nnunet_transformations(params, validation=False):
         if params['gamma']:
             transforms.append(RandomTransform(
                 GammaTransform(
-                    gamma=BGContrast((0.7, 1.5)),
+                    gamma=BGContrast(params['gamma_range']),
                     p_invert_image=1,
                     synchronize_channels=False,
                     p_per_channel=1,
@@ -689,7 +715,7 @@ def define_nnunet_transformations(params, validation=False):
             ))
             transforms.append(RandomTransform(
                 GammaTransform(
-                    gamma=BGContrast((0.7, 1.5)),
+                    gamma=BGContrast(params['gamma_range']),
                     p_invert_image=0,
                     synchronize_channels=False,
                     p_per_channel=1,
