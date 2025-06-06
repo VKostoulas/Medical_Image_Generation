@@ -12,9 +12,10 @@ import logging
 import matplotlib
 import nibabel as nib
 import numpy as np
+import concurrent.futures
 
 from datetime import datetime
-
+from functools import partial
 
 # def load_config(config_name):
 #     """Load default configuration from a YAML file."""
@@ -788,6 +789,39 @@ def save_min_max(data_path, patient_id, min_max):
         pickle.dump(min_max, f)
 
 
+def process_patient(patient_id, nnunet_raw_path, nnunet_2d_path, nnunet_3d_path):
+    result = {"patient_id": patient_id, "errors": 0}
+
+    try:
+        raw_image = load_raw_patient_images(nnunet_raw_path, patient_id)
+        raw_min_max = calculate_min_max_per_channel(raw_image)
+        save_min_max(nnunet_raw_path, patient_id, raw_min_max)
+        result["raw"] = raw_min_max
+    except Exception as e:
+        result["raw_error"] = f"{type(e).__name__}: {e}"
+        result["errors"] += 1
+
+    try:
+        image_2d, _ = load_image(nnunet_2d_path, patient_id)
+        min_max_2d = calculate_min_max_per_channel(image_2d)
+        save_min_max(nnunet_2d_path, patient_id, min_max_2d)
+        result["2d"] = min_max_2d
+    except Exception as e:
+        result["2d_error"] = f"{type(e).__name__}: {e}"
+        result["errors"] += 1
+
+    try:
+        image_3d, _ = load_image(nnunet_3d_path, patient_id)
+        min_max_3d = calculate_min_max_per_channel(image_3d)
+        save_min_max(nnunet_3d_path, patient_id, min_max_3d)
+        result["3d"] = min_max_3d
+    except Exception as e:
+        result["3d_error"] = f"{type(e).__name__}: {e}"
+        result["errors"] += 1
+
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description="Automatically configure the parameters of image generation model "
                                                  "with nnU-Net for dataset ID.")
@@ -885,22 +919,45 @@ def main():
         patient_ids = [os.path.basename(fp).replace('.b2nd', '') for fp in file_paths if '_seg' not in fp]
     print(f"Found {len(patient_ids)} patients.")
 
-    for patient_id in patient_ids:
+    max_workers = 8
+    total_errors = 0
+    patients_with_errors = []
 
-        raw_image = load_raw_patient_images(nnunet_raw_path, patient_id)
-        raw_min_max = calculate_min_max_per_channel(raw_image)
-        save_min_max(nnunet_raw_path, patient_id, raw_min_max)
-        print(f"    {patient_id} raw: {raw_min_max}")
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+        func = partial(process_patient, nnunet_raw_path=nnunet_raw_path,
+                                        nnunet_2d_path=nnunet_2d_path,
+                                        nnunet_3d_path=nnunet_3d_path)
 
-        image_2d, _ = load_image(nnunet_2d_path, patient_id)
-        min_max_2d = calculate_min_max_per_channel(image_2d)
-        save_min_max(nnunet_2d_path, patient_id, min_max_2d)
-        print(f"    {patient_id} 2D: {min_max_2d}")
+        futures = {executor.submit(func, pid): pid for pid in patient_ids}
 
-        image_3d, _ = load_image(nnunet_3d_path, patient_id)
-        min_max_3d = calculate_min_max_per_channel(image_3d)
-        save_min_max(nnunet_3d_path, patient_id, min_max_3d)
-        print(f"    {patient_id} 3D: {min_max_3d}")
+        for future in concurrent.futures.as_completed(futures):
+            pid = futures[future]
+            try:
+                result = future.result()
+                errors = result["errors"]
+                if errors:
+                    total_errors += errors
+                    patients_with_errors.append((pid, errors))
+                    print(f"⚠️  {pid} had {errors} error(s):")
+                    for key in ["raw_error", "2d_error", "3d_error"]:
+                        if key in result:
+                            print(f"    {key.replace('_', ' ').upper()}: {result[key]}")
+                else:
+                    print(f"✅ {pid} processed successfully.")
+            except Exception as e:
+                total_errors += 3  # Assume all 3 failed if outer fails
+                patients_with_errors.append((pid, 3))
+                print(f"❌ {pid} failed completely: {e}")
+
+    # Final summary
+    print("\n=== Summary ===")
+    print(f"Total patients processed: {len(patient_ids)}")
+    print(f"Patients with errors: {len(patients_with_errors)}")
+    print(f"Total individual errors: {total_errors}")
+    if patients_with_errors:
+        print("Patients with errors:")
+        for pid, count in patients_with_errors:
+            print(f"  - {pid}: {count} error(s)")
 
 
 
