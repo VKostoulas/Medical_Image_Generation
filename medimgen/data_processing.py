@@ -439,18 +439,15 @@ class MedicalDataset(Dataset):
         with open(os.path.join(self.data_path, name + '.pkl'), mode='rb') as f:
             properties = pickle.load(f)
 
-        return image, properties
+        with open(os.path.join(self.data_path, name + '_min_max.pkl'), mode='rb') as f:
+            min_max = pickle.load(f)
+
+        return image, properties, min_max
 
     def __getitem__(self, indexes):
         batch_idx, sample_idx = indexes
         name = self.ids[sample_idx]
-        image, properties = self.load_image(name)
-
-        # scale to 0-1 per channel
-        spatial_axes = tuple(range(1, image.ndim))
-        min_val = image.min(axis=spatial_axes, keepdims=True)
-        max_val = image.max(axis=spatial_axes, keepdims=True)
-        image = (image - min_val) / (max_val - min_val)
+        image, properties, min_max = self.load_image(name)
 
         # Decide if oversampling foreground is needed
         force_fg = self.oversampling_method(batch_idx)
@@ -465,6 +462,7 @@ class MedicalDataset(Dataset):
         # Select specific channels if channel_ids is provided
         if self.channel_ids is not None:
             image = image[self.channel_ids, ...]
+            min_max = [min_max[i] for i in self.channel_ids]
 
         if len(image.shape) < len(self.patch_size) + 1:
             image = np.expand_dims(image, axis=0)  # add channel dimension
@@ -474,6 +472,12 @@ class MedicalDataset(Dataset):
         image = torch.as_tensor(image).float()
         image = image.contiguous()
         image = self.transform(image)
+
+        # scale to 0-1 per channel based on the statistics of the entire volume
+        min_max_tensor = torch.tensor(min_max, dtype=image.dtype, device=image.device)  # Shape (C, 2)
+        mins = min_max_tensor[:, 0].view(-1, *[1] * (image.ndim - 1))  # (C, 1, 1) or (C, 1, 1, 1)
+        maxs = min_max_tensor[:, 1].view(-1, *[1] * (image.ndim - 1))
+        image = (image - mins) / (maxs - mins)
 
         image = torch.clamp(image, min=0.0, max=1.0)
 

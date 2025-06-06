@@ -2,12 +2,15 @@ import json
 import os
 import ast
 import glob
+import blosc2
+import pickle
 import sys
 import math
 import yaml
 import argparse
 import logging
 import matplotlib
+import nibabel as nib
 import numpy as np
 
 from datetime import datetime
@@ -638,7 +641,7 @@ def create_config_dict(nnunet_config_dict, input_channels, n_epochs_multiplier, 
     patch_size_3d = [min(valid_sizes, key=lambda x: abs(x - size)) for size in median_image_size]
     patch_size = nnunet_config_dict['patch_size'] if autoencoder_dict['spatial_dims'] == 2 else patch_size_3d
 
-    print(f"Patch size: {patch_size}")
+    print(f"Patch size {autoencoder_dict['spatial_dims']}D: {patch_size}")
 
     ae_transformations = {
         "patch_size": patch_size,
@@ -696,7 +699,7 @@ def create_config_dict(nnunet_config_dict, input_channels, n_epochs_multiplier, 
         ae_batch_size //= 2
         ddpm_batch_size //= 2
         grad_accumulate_step *= 2
-        print("We will use 2 gradient accumulation steps while training.")
+        print(f"We will use 2 gradient accumulation steps while training in {autoencoder_dict['spatial_dims']}D.")
 
     config = {
         'input_channels': input_channels,
@@ -735,6 +738,54 @@ def create_config_dict(nnunet_config_dict, input_channels, n_epochs_multiplier, 
     #          latent_space_type: "vae"
 
     return config
+
+
+def load_raw_patient_images(raw_path, patient_id):
+    # Load all channels for the patient from .nii.gz files
+    channel_files = sorted(glob.glob(os.path.join(raw_path, f"{patient_id}_*.nii.gz")))
+    if not channel_files:
+        raise FileNotFoundError(f"No .nii.gz files found for patient {patient_id} in {raw_path}")
+
+    channels = []
+    for ch_file in channel_files:
+        nii = nib.load(ch_file)
+        arr = nii.get_fdata(dtype=np.float32)  # get_fdata ensures float32 for consistency
+        channels.append(arr)
+
+    return np.stack(channels, axis=0)  # Shape: (C, D, H, W) or (C, H, W)
+
+
+def load_image(data_path, name):
+    dparams = {'nthreads': 1}
+
+    image_path_npy = os.path.join(data_path, name + '.npy')
+    image_path_npz = os.path.join(data_path, name + '.npz')
+    data_b2nd_file = os.path.join(data_path, name + '.b2nd')
+    pkl_file = os.path.join(data_path, name + '.pkl')
+
+    if os.path.isfile(image_path_npy):
+        image = np.load(image_path_npy, mmap_mode='r')
+    elif os.path.isfile(image_path_npz):
+        image = np.load(image_path_npz)['data']
+    elif os.path.isfile(data_b2nd_file):
+        image = blosc2.open(urlpath=data_b2nd_file, mode='r', dparams=dparams, mmap_mode='r')
+    else:
+        raise FileNotFoundError(f"No image file found for {name} in {data_path}")
+
+    with open(pkl_file, 'rb') as f:
+        properties = pickle.load(f)
+
+    return image, properties
+
+
+def calculate_min_max_per_channel(image):
+    return [(float(np.min(image[i])), float(np.max(image[i]))) for i in range(image.shape[0])]
+
+
+def save_min_max(data_path, patient_id, min_max):
+    output_path = os.path.join(data_path, f"{patient_id}_min_max.pkl")
+    with open(output_path, 'wb') as f:
+        pickle.dump(min_max, f)
 
 
 def main():
@@ -819,3 +870,37 @@ def main():
         yaml.dump(config, file, sort_keys=False, Dumper=CustomDumper)
 
     print(f"Configuration file for Dataset {dataset_id} saved at {config_save_path}")
+
+    print("Calculating min-max per patient...")
+    nnunet_2d_path = os.path.join(preprocessed_dataset_path, 'nnUNetPlans_2d')
+    nnunet_3d_path = os.path.join(preprocessed_dataset_path, 'nnUNetPlans_3d_fullres')
+    nnunet_raw_path = glob.glob(os.getenv('nnUNet_raw') + f'/Dataset{dataset_id}*/')[0]
+    nnunet_raw_path = os.path.join(nnunet_raw_path, 'imagesTr')
+
+    file_paths = glob.glob(os.path.join(nnunet_2d_path, "*.npz"))
+    patient_ids = [os.path.basename(fp).replace('.npz', '') for fp in file_paths]
+    if not patient_ids:
+        # we got .b2nd files
+        file_paths = glob.glob(os.path.join(nnunet_2d_path, "*.b2nd"))
+        patient_ids = [os.path.basename(fp).replace('.b2nd', '') for fp in file_paths if '_seg' not in fp]
+    print(f"Found {len(patient_ids)} patients.")
+
+    for patient_id in patient_ids:
+
+        raw_image = load_raw_patient_images(nnunet_raw_path, patient_id)
+        raw_min_max = calculate_min_max_per_channel(raw_image)
+        save_min_max(nnunet_raw_path, patient_id, raw_min_max)
+        print(f"    {patient_id} raw: {raw_min_max}")
+
+        image_2d, _ = load_image(nnunet_2d_path, patient_id)
+        min_max_2d = calculate_min_max_per_channel(image_2d)
+        save_min_max(nnunet_2d_path, patient_id, min_max_2d)
+        print(f"    {patient_id} 2D: {min_max_2d}")
+
+        image_3d, _ = load_image(nnunet_3d_path, patient_id)
+        min_max_3d = calculate_min_max_per_channel(image_3d)
+        save_min_max(nnunet_3d_path, patient_id, min_max_3d)
+        print(f"    {patient_id} 3D: {min_max_3d}")
+
+
+
