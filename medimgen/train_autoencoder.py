@@ -244,88 +244,88 @@ class AutoEncoder:
     #     print(f"Raw KL loss weight: {kl_weight_raw}")
     #     print(f"KL loss weight set to: {self.config['kl_weight']}")
 
-    def adapt_kl_and_perceptual_loss_weights(self, val_loader, perceptual_loss):
-        print('Setting KL & Perceptual loss weights...')
-        self.autoencoder.eval()
-        total_rec_loss = 0
-        total_kl_loss = 0
-        total_perc_loss = 0
-        disable_prog_bar = self.config['output_mode'] == 'log' or not self.config['progress_bar']
-
-        with tqdm(enumerate(val_loader), total=len(val_loader), ncols=100, disable=disable_prog_bar,
-                  file=sys.stdout) as val_progress_bar:
-            for step, batch in val_progress_bar:
-                images = batch["image"].to(self.device)
-
-                with torch.no_grad():
-                    with autocast(enabled=True):
-                        reconstructions, z_mu, z_sigma = self.autoencoder(images)
-                        kl_loss = self.get_kl_loss(z_mu, z_sigma)
-                        rec_loss = self.l1_loss(reconstructions.float(), images.float())
-                        perc_loss = perceptual_loss(reconstructions.float(), images.float())
-                total_rec_loss += rec_loss.item()
-                total_kl_loss += kl_loss.item()
-                total_perc_loss += perc_loss.item()
-                val_progress_bar.set_postfix(
-                    {"rec_loss": total_rec_loss / (step + 1), "kl_loss": total_kl_loss / (step + 1), "perc_loss": total_perc_loss / (step + 1)})
-
-        total_rec_loss = total_rec_loss / len(val_loader)
-        total_kl_loss = total_kl_loss / len(val_loader)
-        total_perc_loss = total_perc_loss / len(val_loader)
-
-        def decompose_to_base_and_exponent(x):
-            import math
-            exponent = math.floor(math.log10(abs(x)))
-            base = x / (10 ** exponent)
-            return base, exponent
-
-        kl_base, kl_exponent = decompose_to_base_and_exponent(total_kl_loss)
-        # this is tuned on Brain Tumour
-        self.config['kl_weight'] = 0.001 / (10 ** kl_exponent)
-        print(f"KL loss weight set to: {self.config['kl_weight']}")
-
-        perc_weight = 0.5
-        while not perc_weight * total_perc_loss < total_rec_loss:
-            perc_weight /= 2
-
-        self.config['perc_weight'] = perc_weight
-        print(f"Perceptual loss weight set to: {self.config['perc_weight']}")
-
-
-    # def adapt_kl_loss_weight(self, val_loader):
-    #     if 'kl_weight' in self.config.keys():
-    #         print(f"KL loss weight manually set to: {self.config['kl_weight']}")
-    #     else:
-    #         print('Setting KL loss weight...')
-    #         self.autoencoder.eval()
-    #         total_kl_loss = 0
-    #         disable_prog_bar = self.config['output_mode'] == 'log' or not self.config['progress_bar']
+    # def adapt_kl_and_perceptual_loss_weights(self, val_loader, perceptual_loss):
+    #     print('Setting KL & Perceptual loss weights...')
+    #     self.autoencoder.eval()
+    #     total_rec_loss = 0
+    #     total_kl_loss = 0
+    #     total_perc_loss = 0
+    #     disable_prog_bar = self.config['output_mode'] == 'log' or not self.config['progress_bar']
     #
-    #         with tqdm(enumerate(val_loader), total=len(val_loader), ncols=100, disable=disable_prog_bar,
-    #                   file=sys.stdout) as val_progress_bar:
-    #             for step, batch in val_progress_bar:
-    #                 images = batch["image"].to(self.device)
+    #     with tqdm(enumerate(val_loader), total=len(val_loader), ncols=100, disable=disable_prog_bar,
+    #               file=sys.stdout) as val_progress_bar:
+    #         for step, batch in val_progress_bar:
+    #             images = batch["image"].to(self.device)
     #
-    #                 with torch.no_grad():
-    #                     with autocast(enabled=True):
-    #                         reconstructions, z_mu, z_sigma = self.autoencoder(images)
-    #                         kl_loss = self.get_kl_loss(z_mu, z_sigma)
-    #                 total_kl_loss += kl_loss.item()
-    #                 val_progress_bar.set_postfix(
-    #                     {"kl_loss": total_kl_loss / (step + 1)})
+    #             with torch.no_grad():
+    #                 with autocast(enabled=True):
+    #                     reconstructions, z_mu, z_sigma = self.autoencoder(images)
+    #                     kl_loss = self.get_kl_loss(z_mu, z_sigma)
+    #                     rec_loss = self.l1_loss(reconstructions.float(), images.float())
+    #                     perc_loss = perceptual_loss(reconstructions.float(), images.float())
+    #             total_rec_loss += rec_loss.item()
+    #             total_kl_loss += kl_loss.item()
+    #             total_perc_loss += perc_loss.item()
+    #             val_progress_bar.set_postfix(
+    #                 {"rec_loss": total_rec_loss / (step + 1), "kl_loss": total_kl_loss / (step + 1), "perc_loss": total_perc_loss / (step + 1)})
     #
-    #         total_kl_loss = total_kl_loss / len(val_loader)
+    #     total_rec_loss = total_rec_loss / len(val_loader)
+    #     total_kl_loss = total_kl_loss / len(val_loader)
+    #     total_perc_loss = total_perc_loss / len(val_loader)
     #
-    #         def decompose_to_base_and_exponent(x):
-    #             import math
-    #             exponent = math.floor(math.log10(abs(x)))
-    #             base = x / (10 ** exponent)
-    #             return base, exponent
+    #     def decompose_to_base_and_exponent(x):
+    #         import math
+    #         exponent = math.floor(math.log10(abs(x)))
+    #         base = x / (10 ** exponent)
+    #         return base, exponent
     #
-    #         kl_base, kl_exponent = decompose_to_base_and_exponent(total_kl_loss)
-    #         # this is tuned on Brain Tumour
-    #         self.config['kl_weight'] = 0.001 / (10 ** kl_exponent)
-    #         print(f"KL loss weight set to: {self.config['kl_weight']}")
+    #     kl_base, kl_exponent = decompose_to_base_and_exponent(total_kl_loss)
+    #     # this is tuned on Brain Tumour
+    #     self.config['kl_weight'] = 0.001 / (10 ** kl_exponent)
+    #     print(f"KL loss weight set to: {self.config['kl_weight']}")
+    #
+    #     perc_weight = 1
+    #     while not perc_weight * total_perc_loss < total_rec_loss:
+    #         perc_weight /= 2
+    #
+    #     self.config['perc_weight'] = perc_weight
+    #     print(f"Perceptual loss weight set to: {self.config['perc_weight']}")
+
+
+    def adapt_kl_loss_weight(self, val_loader):
+        if 'kl_weight' in self.config.keys():
+            print(f"KL loss weight manually set to: {self.config['kl_weight']}")
+        else:
+            print('Setting KL loss weight...')
+            self.autoencoder.eval()
+            total_kl_loss = 0
+            disable_prog_bar = self.config['output_mode'] == 'log' or not self.config['progress_bar']
+
+            with tqdm(enumerate(val_loader), total=len(val_loader), ncols=100, disable=disable_prog_bar,
+                      file=sys.stdout) as val_progress_bar:
+                for step, batch in val_progress_bar:
+                    images = batch["image"].to(self.device)
+
+                    with torch.no_grad():
+                        with autocast(enabled=True):
+                            reconstructions, z_mu, z_sigma = self.autoencoder(images)
+                            kl_loss = self.get_kl_loss(z_mu, z_sigma)
+                    total_kl_loss += kl_loss.item()
+                    val_progress_bar.set_postfix(
+                        {"kl_loss": total_kl_loss / (step + 1)})
+
+            total_kl_loss = total_kl_loss / len(val_loader)
+
+            def decompose_to_base_and_exponent(x):
+                import math
+                exponent = math.floor(math.log10(abs(x)))
+                base = x / (10 ** exponent)
+                return base, exponent
+
+            kl_base, kl_exponent = decompose_to_base_and_exponent(total_kl_loss)
+            # this is tuned on Brain Tumour
+            self.config['kl_weight'] = 0.001 / (10 ** kl_exponent)
+            print(f"KL loss weight set to: {self.config['kl_weight']}")
 
 
     def train_one_epoch(self, epoch, train_loader, discriminator, perceptual_loss, optimizer_g, optimizer_d, scaler_g,
@@ -602,7 +602,7 @@ class AutoEncoder:
 
         optimizer_g, optimizer_d, g_lr_scheduler, d_lr_scheduler = self.get_optimizers_and_lr_schedules(discriminator)
 
-        self.adapt_kl_and_perceptual_loss_weights(val_loader, perceptual_loss)
+        self.adapt_kl_loss_weight(val_loader)
 
         if self.config['load_model_path']:
             start_epoch = self.load_model(self.config['load_model_path'], optimizer=optimizer_g, scheduler=g_lr_scheduler,
