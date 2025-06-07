@@ -4,6 +4,7 @@ import ast
 import glob
 import blosc2
 import pickle
+import scipy
 import sys
 import math
 import yaml
@@ -16,6 +17,7 @@ import concurrent.futures
 
 from datetime import datetime
 from functools import partial
+from concurrent.futures import ProcessPoolExecutor
 
 # def load_config(config_name):
 #     """Load default configuration from a YAML file."""
@@ -517,18 +519,309 @@ def validate_channels(value):
     raise argparse.ArgumentTypeError("Channels must be a list of integers.")
 
 
-def create_autoencoder_dict(nnunet_config_dict, input_channels, spatial_dims):
+# def create_autoencoder_dict(nnunet_config_dict, input_channels, spatial_dims):
+#
+#     # features_per_stage = nnunet_config_dict['architecture']['arch_kwargs']['features_per_stage']
+#     kernel_sizes = nnunet_config_dict['architecture']['arch_kwargs']['kernel_sizes']
+#     strides = nnunet_config_dict['architecture']['arch_kwargs']['strides']
+#
+#     median_image_size = nnunet_config_dict['median_image_size_in_voxels']
+#
+#     # For 3D, for each axis, use as size the closest multiple of 2, 3, or 7 by 2, to the corresponding size of nnunet median patch size
+#     valid_sizes = [32, 48, 56, 64, 96, 112, 128, 192, 224, 256, 384, 448, 512]
+#     patch_size_3d = [min(valid_sizes, key=lambda x: abs(x - size)) for size in median_image_size]
+#     patch_size = nnunet_config_dict['patch_size'] if spatial_dims == 2 else patch_size_3d
+#
+#     base_autoencoder_channels = [32, 64, 128, 128]
+#
+#     vae_dict = {'spatial_dims': spatial_dims,
+#                 'in_channels': len(input_channels),
+#                 'out_channels': len(input_channels),
+#                 'latent_channels': 8,
+#                 'num_res_blocks': 2,
+#                 'with_encoder_nonlocal_attn': False,
+#                 'with_decoder_nonlocal_attn': False,
+#                 'use_flash_attention': False,
+#                 'use_checkpointing': False,
+#                 'use_convtranspose': False
+#                }
+#
+#     # use maximum of 3 autoencoder downsampling layers
+#     # for max image size 512, 3 ae layers --> latent size 64 --> good
+#     # for max image size 400, 3 ae layers --> latent size 50 --> good
+#     # for max image size 320, 3 ae layers --> latent size 40 --> good
+#     # when 3 layers are more than needed? when latent size after 2 downsamplings is <= 64 --> patch_size <= 256
+#     # for max image size 256, 2 ae layers --> latent size 64 --> good
+#     # for max image size 200, 2 ae layers --> latent size 50 --> good
+#     # for max image size 160, 2 ae layers --> latent size 40 --> good
+#     # for max image size 128, 2 ae layers --> latent size 32 --> good
+#     # when 2 layers are more than needed? when latent size after 1 downsamplings is <= 32 --> patch_size <= 64
+#     # for max image size 100, 2 ae layers --> latent size 25 --> good
+#     # for max image size 64, 1 ae layer --> latent size 32 --> good
+#     if np.max(patch_size) <= 64:
+#         vae_n_layers = 1
+#     elif np.max(patch_size) <= 256:
+#         vae_n_layers = 2
+#     else:
+#         vae_n_layers = 3
+#
+#     # vae_dict['num_channels'] = features_per_stage[:vae_n_layers+1]
+#     # vae_dict['attention_levels'] = [False] * (vae_n_layers+1)
+#     # vae_dict['norm_num_groups'] = vae_dict['num_channels'][0]
+#     vae_dict['num_channels'] = base_autoencoder_channels[:vae_n_layers+1]
+#     vae_dict['attention_levels'] = [False] * (vae_n_layers+1)
+#     vae_dict['norm_num_groups'] = 16
+#
+#     # nnunet gives you the parameters of the first conv block and then all the downsample parameters
+#     # For the autoencoder we pass these directly but for the ddpm things are a bit different (see create_ddpm_dict)
+#     downsample_parameters = [[item1, item2] for item1, item2 in zip(strides[:vae_n_layers+1], kernel_sizes[:vae_n_layers+1])]
+#     paddings = [[1 if k == 3 else 0 for k in layer] for layer in kernel_sizes[:vae_n_layers+1]]
+#     downsample_parameters = [item1 + [item2] for item1, item2 in zip(downsample_parameters, paddings)]
+#     vae_dict['downsample_parameters'] = downsample_parameters
+#     vae_dict['upsample_parameters'] = list(reversed(downsample_parameters))[:-1]
+#     return vae_dict
+#
+#
+# def create_ddpm_dict(nnunet_config_dict, spatial_dims):
+#
+#     # features_per_stage = nnunet_config_dict['architecture']['arch_kwargs']['features_per_stage']
+#     kernel_sizes = nnunet_config_dict['architecture']['arch_kwargs']['kernel_sizes']
+#     strides = nnunet_config_dict['architecture']['arch_kwargs']['strides']
+#
+#     median_image_size = nnunet_config_dict['median_image_size_in_voxels']
+#
+#     # For 3D, for each axis, use as size the closest multiple of 2, 3, or 7 by 2, to the corresponding size of nnunet median patch size
+#     valid_sizes = [32, 48, 56, 64, 96, 112, 128, 192, 224, 256, 384, 448, 512]
+#     patch_size_3d = [min(valid_sizes, key=lambda x: abs(x - size)) for size in median_image_size]
+#     patch_size = nnunet_config_dict['patch_size'] if spatial_dims == 2 else patch_size_3d
+#
+#     ddpm_dict = {'spatial_dims': spatial_dims,
+#                  'in_channels': 8,
+#                  'out_channels': 8,
+#                  'num_res_blocks': 2,
+#                  'use_flash_attention': False,
+#                 }
+#
+#     # check create_autoencoder_dict
+#     if np.max(patch_size) <= 64:
+#         vae_n_layers = 1
+#     elif np.max(patch_size) <= 256:
+#         vae_n_layers = 2
+#     else:
+#         vae_n_layers = 3
+#
+#     # ddpm_dict['num_channels'] = features_per_stage[vae_n_layers:]
+#     # if len(ddpm_dict['num_channels']) < 2:
+#     #     raise ValueError("The number of stages must be at least 2.")
+#     # # First 2 stages without attention, then attention for the rest
+#     # ddpm_dict['attention_levels'] = [False, False] + [True] * (len(ddpm_dict['num_channels']) - 2)
+#     ddpm_dict['num_channels'] = [256, 512, 768]
+#     ddpm_dict['attention_levels'] = [False, True, True]
+#     ddpm_dict['num_head_channels'] = [0, 512, 768]
+#
+#     # if len(ddpm_dict['num_channels']) != len(ddpm_dict['attention_levels']):
+#     #     raise ValueError("num_channels and attention_levels must be of the same length.")
+#     # ddpm_dict['num_head_channels'] = [channel if use_attention else 0
+#     #                                      for channel, use_attention in zip(ddpm_dict['num_channels'], ddpm_dict['attention_levels'])]
+#
+#     # Now the remaining conv parameters from nnunet do not involve the first conv block of the ddpm unet
+#     # For the first layer of the ddpm unet we always keep the strides at 1, but we take the kernel sizes from the
+#     # corresponding layer of nnunet. Then we use all the corresponding nnunet layers for the rest of diffusion layers
+#     ddpm_dict['strides'] = [[1] * spatial_dims] + strides[vae_n_layers+1:vae_n_layers+3]
+#     ddpm_dict['kernel_sizes'] = [kernel_sizes[vae_n_layers+1]] + kernel_sizes[vae_n_layers+1:vae_n_layers+3]
+#     ddpm_dict['paddings'] = [[1 if k == 3 else 0 for k in layer] for layer in ddpm_dict['kernel_sizes']]
+#
+#     return ddpm_dict
 
-    # features_per_stage = nnunet_config_dict['architecture']['arch_kwargs']['features_per_stage']
-    kernel_sizes = nnunet_config_dict['architecture']['arch_kwargs']['kernel_sizes']
-    strides = nnunet_config_dict['architecture']['arch_kwargs']['strides']
 
-    median_image_size = nnunet_config_dict['median_image_size_in_voxels']
+# def create_config_dict(nnunet_config_dict, input_channels, n_epochs_multiplier, autoencoder_dict, ddpm_dict):
+#
+#     # features_per_stage = nnunet_config_dict['architecture']['arch_kwargs']['features_per_stage']
+#     median_image_size = nnunet_config_dict['median_image_size_in_voxels']
+#
+#     # For 3D, for each axis, use as size the closest multiple of 2, 3, or 7 by 2, to the corresponding size of nnunet median patch size
+#     valid_sizes = [32, 48, 56, 64, 96, 112, 128, 192, 224, 256, 384, 448, 512]
+#     patch_size_3d = [min(valid_sizes, key=lambda x: abs(x - size)) for size in median_image_size]
+#     patch_size = nnunet_config_dict['patch_size'] if autoencoder_dict['spatial_dims'] == 2 else patch_size_3d
+#
+#     print(f"Patch size {autoencoder_dict['spatial_dims']}D: {patch_size}")
+#
+#     ae_transformations = {
+#         "patch_size": patch_size,
+#         "scaling": True,
+#         "rotation": True,
+#         "gaussian_noise": False,
+#         "gaussian_blur": False,
+#         "low_resolution": False,
+#         "brightness": True,
+#         "contrast": True,
+#         "gamma": True,
+#         "mirror": True,
+#         "dummy_2d": False
+#     }
+#     # not using augmentations for ddpm training
+#     ddpm_transformations = {
+#         "patch_size": patch_size,
+#         "scaling": False,
+#         "rotation": False,
+#         "gaussian_noise": False,
+#         "gaussian_blur": False,
+#         "low_resolution": False,
+#         "brightness": False,
+#         "contrast": False,
+#         "gamma": False,
+#         "mirror": False,
+#         "dummy_2d": False
+#     }
+#
+#     if autoencoder_dict['spatial_dims'] == 2:
+#         perceptual_params = {'spatial_dims': 2, 'network_type': "vgg"}
+#     else:
+#         perceptual_params = {'spatial_dims': 3, 'network_type': "vgg", 'is_fake_3d': True, 'fake_3d_ratio': 0.2}
+#
+#     discriminator_params = {'spatial_dims': autoencoder_dict['spatial_dims'], 'in_channels': autoencoder_dict['in_channels'],
+#                             'out_channels': 1, 'num_channels': 64, 'num_layers_d': 3}
+#
+#     # adjust the number of epochs based on the training model (2D/3D) and number of training data
+#     n_epochs = 300 if autoencoder_dict['spatial_dims'] == 3 else 200
+#     n_epochs = n_epochs * n_epochs_multiplier
+#
+#     # adjust the batch size and gradient accumulation
+#     if autoencoder_dict['spatial_dims'] == 2:
+#         # for 2d use 75% of batch size for both ae and ddpm
+#         ae_batch_size = int(nnunet_config_dict['batch_size'] * 0.75)
+#         ddpm_batch_size = int(nnunet_config_dict['batch_size'] * 0.75)
+#         grad_accumulate_step = 1
+#     else:
+#         ae_batch_size = 2
+#         ddpm_batch_size = ae_batch_size * 2
+#         grad_accumulate_step = 1
+#
+#     # if batch size and patch size get large, use gradient accumulation
+#     if math.prod(patch_size + [ae_batch_size]) > 2e+6:
+#         ae_batch_size //= 2
+#         ddpm_batch_size //= 2
+#         grad_accumulate_step *= 2
+#         print(f"We will use 2 gradient accumulation steps while training in {autoencoder_dict['spatial_dims']}D.")
+#
+#     config = {
+#         'input_channels': input_channels,
+#         'ae_transformations': ae_transformations,
+#         'ddpm_transformations': ddpm_transformations,
+#         'ae_batch_size': ae_batch_size,
+#         'ddpm_batch_size': ddpm_batch_size,
+#         'n_epochs': n_epochs,
+#         'val_plot_interval': 10,
+#         'grad_clip_max_norm': 1,
+#         'grad_accumulate_step': grad_accumulate_step,
+#         'oversample_ratio': 0.33,
+#         'num_workers': 8,
+#         # 'lr_scheduler': "LinearLR",
+#         # 'lr_scheduler_params': {'start_factor': 1.0, 'end_factor': 0., 'total_iters': n_epochs},
+#         # 'lr_scheduler_params': {'start_factor': 1.0, 'end_factor': 0.0001, 'total_iters': int(n_epochs*0.9)},
+#         'lr_scheduler': None, # "PolynomialLR",
+#         'lr_scheduler_params': {'total_iters': n_epochs, 'power': 0.9},
+#         'time_scheduler_params': {'num_train_timesteps': 1000, 'schedule': "scaled_linear_beta", 'beta_start': 0.0015,
+#                                   'beta_end': 0.0205, 'prediction_type': "epsilon"},
+#         'ae_learning_rate': 5e-5,
+#         # 'weight_decay': 3e-5,
+#         'd_learning_rate': 5e-5,
+#         'autoencoder_warm_up_epochs': 5,
+#         'adv_weight': 0.05,
+#         'perc_weight': 0.5 if autoencoder_dict['spatial_dims'] == 2 else 0.125,
+#         'vae_params': autoencoder_dict,
+#         'perceptual_params': perceptual_params,
+#         'discriminator_params': discriminator_params,
+#         'ddpm_learning_rate': 2e-5,
+#         'ddpm_params': ddpm_dict
+#     }
+#
+#     # missing: grad_accumulate_step, q_weight, kl_weight, adv_weight, perc_weight, autoencoder_warm_up_epochs,
+#     #          latent_space_type: "vae"
+#
+#     return config
 
+
+def compute_downsample_parameters(input_size, num_layers):
+    """
+    Generalized to handle 1D, 2D, or 3D input sizes.
+
+    Args:
+        input_size: list of ints [D, H, W] or [H, W] or [W]
+        num_layers: int, number of layers including the first one
+
+    Returns:
+        List of lists: [[[stride], [kernel], [padding]], ...] for each layer
+    """
+    ndim = len(input_size)
+    current_size = list(input_size)
+    parameters = []
+
+    for i in range(num_layers):
+        stride = [1] * ndim
+        kernel = [3] * ndim
+        padding = [1] * ndim
+
+        if i == 0:
+            # First layer: adjust based on dimension disparity
+            for d in range(ndim):
+                other_dims = [current_size[j] for j in range(ndim) if j != d]
+                if current_size[d] <= 0.5 * max(other_dims, default=current_size[d]):
+                    kernel[d] = 1
+                    padding[d] = 0
+        else:
+            # Downsampling layers
+            for d in range(ndim):
+                other_dims = [current_size[j] for j in range(ndim) if j != d]
+                if current_size[d] <= 0.5 * max(other_dims, default=current_size[d]):
+                    stride[d] = 1
+                    kernel[d] = 1
+                    padding[d] = 0
+                else:
+                    stride[d] = 2
+                    kernel[d] = 3
+                    padding[d] = 1
+
+            # Update size after downsampling
+            for d in range(ndim):
+                current_size[d] = (current_size[d] + 2 * padding[d] - kernel[d]) // stride[d] + 1
+
+        parameters.append([stride, kernel, padding])
+
+    return parameters
+
+
+def compute_output_size(input_size, downsample_parameters):
+    """
+    Args:
+        input_size: list of ints (e.g. [D, H, W] or [H, W])
+        downsample_parameters: list of [[stride], [kernel], [padding]] per layer
+
+    Returns:
+        output_size: list of ints representing final size after all layers
+    """
+    output_size = list(input_size)
+
+    for layer in downsample_parameters:
+        stride, kernel, padding = layer
+        for d in range(len(output_size)):
+            output_size[d] = (
+                (output_size[d] + 2 * padding[d] - kernel[d]) // stride[d]
+            ) + 1
+
+    return output_size
+
+
+def create_autoencoder_dict(dataset_config, input_channels, spatial_dims):
+    median_image_size = dataset_config['median_shape']
+    max_image_size = dataset_config['max_shape']
+    # For 2D, for each axis, use as size the closest multiple of 2, 3, 5 or 7 by powers of 2, to the corresponding size of max patch size
+    valid_2d_sizes = [32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 512]
+    patch_size_2d = [min(valid_2d_sizes, key=lambda x: abs(x - size)) for size in max_image_size]
     # For 3D, for each axis, use as size the closest multiple of 2, 3, or 7 by 2, to the corresponding size of nnunet median patch size
-    valid_sizes = [32, 48, 56, 64, 96, 112, 128, 192, 224, 256, 384, 448, 512]
-    patch_size_3d = [min(valid_sizes, key=lambda x: abs(x - size)) for size in median_image_size]
-    patch_size = nnunet_config_dict['patch_size'] if spatial_dims == 2 else patch_size_3d
+    valid_3d_sizes = [32, 48, 56, 64, 96, 112, 128, 192, 224, 256, 384, 448, 512]
+    patch_size_3d = [min(valid_3d_sizes, key=lambda x: abs(x - size)) for size in median_image_size]
+    patch_size = patch_size_2d[1:] if spatial_dims == 2 else patch_size_3d
 
     base_autoencoder_channels = [32, 64, 128, 128]
 
@@ -545,53 +838,34 @@ def create_autoencoder_dict(nnunet_config_dict, input_channels, spatial_dims):
                }
 
     # use maximum of 3 autoencoder downsampling layers
-    # for max image size 512, 3 ae layers --> latent size 64 --> good
-    # for max image size 400, 3 ae layers --> latent size 50 --> good
-    # for max image size 320, 3 ae layers --> latent size 40 --> good
-    # when 3 layers are more than needed? when latent size after 2 downsamplings is <= 64 --> patch_size <= 256
-    # for max image size 256, 2 ae layers --> latent size 64 --> good
-    # for max image size 200, 2 ae layers --> latent size 50 --> good
-    # for max image size 160, 2 ae layers --> latent size 40 --> good
-    # for max image size 128, 2 ae layers --> latent size 32 --> good
-    # when 2 layers are more than needed? when latent size after 1 downsamplings is <= 32 --> patch_size <= 64
-    # for max image size 100, 2 ae layers --> latent size 25 --> good
-    # for max image size 64, 1 ae layer --> latent size 32 --> good
-    if np.max(patch_size) <= 64:
+    # we want the latent dims to be less than 100 to be managable (say less than 96)
+    if np.max(patch_size) <= 96:
         vae_n_layers = 1
-    elif np.max(patch_size) <= 256:
+    elif np.max(patch_size) <= 384:
         vae_n_layers = 2
     else:
         vae_n_layers = 3
 
-    # vae_dict['num_channels'] = features_per_stage[:vae_n_layers+1]
-    # vae_dict['attention_levels'] = [False] * (vae_n_layers+1)
-    # vae_dict['norm_num_groups'] = vae_dict['num_channels'][0]
     vae_dict['num_channels'] = base_autoencoder_channels[:vae_n_layers+1]
     vae_dict['attention_levels'] = [False] * (vae_n_layers+1)
     vae_dict['norm_num_groups'] = 16
 
-    # nnunet gives you the parameters of the first conv block and then all the downsample parameters
-    # For the autoencoder we pass these directly but for the ddpm things are a bit different (see create_ddpm_dict)
-    downsample_parameters = [[item1, item2] for item1, item2 in zip(strides[:vae_n_layers+1], kernel_sizes[:vae_n_layers+1])]
-    paddings = [[1 if k == 3 else 0 for k in layer] for layer in kernel_sizes[:vae_n_layers+1]]
-    downsample_parameters = [item1 + [item2] for item1, item2 in zip(downsample_parameters, paddings)]
+    downsample_parameters = compute_downsample_parameters(patch_size, vae_n_layers + 1)
     vae_dict['downsample_parameters'] = downsample_parameters
     vae_dict['upsample_parameters'] = list(reversed(downsample_parameters))[:-1]
     return vae_dict
 
 
-def create_ddpm_dict(nnunet_config_dict, spatial_dims):
-
-    # features_per_stage = nnunet_config_dict['architecture']['arch_kwargs']['features_per_stage']
-    kernel_sizes = nnunet_config_dict['architecture']['arch_kwargs']['kernel_sizes']
-    strides = nnunet_config_dict['architecture']['arch_kwargs']['strides']
-
-    median_image_size = nnunet_config_dict['median_image_size_in_voxels']
-
+def create_ddpm_dict(dataset_config, spatial_dims):
+    median_image_size = dataset_config['median_shape']
+    max_image_size = dataset_config['max_shape']
+    # For 2D, for each axis, use as size the closest multiple of 2, 3, 5 or 7 by powers of 2, to the corresponding size of max patch size
+    valid_2d_sizes = [32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 512]
+    patch_size_2d = [min(valid_2d_sizes, key=lambda x: abs(x - size)) for size in max_image_size]
     # For 3D, for each axis, use as size the closest multiple of 2, 3, or 7 by 2, to the corresponding size of nnunet median patch size
-    valid_sizes = [32, 48, 56, 64, 96, 112, 128, 192, 224, 256, 384, 448, 512]
-    patch_size_3d = [min(valid_sizes, key=lambda x: abs(x - size)) for size in median_image_size]
-    patch_size = nnunet_config_dict['patch_size'] if spatial_dims == 2 else patch_size_3d
+    valid_3d_sizes = [32, 48, 56, 64, 96, 112, 128, 192, 224, 256, 384, 448, 512]
+    patch_size_3d = [min(valid_3d_sizes, key=lambda x: abs(x - size)) for size in median_image_size]
+    patch_size = patch_size_2d[1:] if spatial_dims == 2 else patch_size_3d
 
     ddpm_dict = {'spatial_dims': spatial_dims,
                  'in_channels': 8,
@@ -600,47 +874,52 @@ def create_ddpm_dict(nnunet_config_dict, spatial_dims):
                  'use_flash_attention': False,
                 }
 
-    # check create_autoencoder_dict
-    if np.max(patch_size) <= 64:
+    # use maximum of 3 autoencoder downsampling layers
+    # we want the latent dims to be less than 100 to be managable (say less than 96)
+    if np.max(patch_size) <= 96:
         vae_n_layers = 1
-    elif np.max(patch_size) <= 256:
+    elif np.max(patch_size) <= 384:
         vae_n_layers = 2
     else:
         vae_n_layers = 3
 
-    # ddpm_dict['num_channels'] = features_per_stage[vae_n_layers:]
-    # if len(ddpm_dict['num_channels']) < 2:
-    #     raise ValueError("The number of stages must be at least 2.")
-    # # First 2 stages without attention, then attention for the rest
-    # ddpm_dict['attention_levels'] = [False, False] + [True] * (len(ddpm_dict['num_channels']) - 2)
     ddpm_dict['num_channels'] = [256, 512, 768]
     ddpm_dict['attention_levels'] = [False, True, True]
     ddpm_dict['num_head_channels'] = [0, 512, 768]
 
-    # if len(ddpm_dict['num_channels']) != len(ddpm_dict['attention_levels']):
-    #     raise ValueError("num_channels and attention_levels must be of the same length.")
-    # ddpm_dict['num_head_channels'] = [channel if use_attention else 0
-    #                                      for channel, use_attention in zip(ddpm_dict['num_channels'], ddpm_dict['attention_levels'])]
+    vae_down_params = compute_downsample_parameters(patch_size, vae_n_layers + 1)
+    latent_size = compute_output_size(patch_size, vae_down_params)
+    ddpm_down_params = compute_downsample_parameters(latent_size, 3)
 
-    # Now the remaining conv parameters from nnunet do not involve the first conv block of the ddpm unet
-    # For the first layer of the ddpm unet we always keep the strides at 1, but we take the kernel sizes from the
-    # corresponding layer of nnunet. Then we use all the corresponding nnunet layers for the rest of diffusion layers
-    ddpm_dict['strides'] = [[1] * spatial_dims] + strides[vae_n_layers+1:vae_n_layers+3]
-    ddpm_dict['kernel_sizes'] = [kernel_sizes[vae_n_layers+1]] + kernel_sizes[vae_n_layers+1:vae_n_layers+3]
-    ddpm_dict['paddings'] = [[1 if k == 3 else 0 for k in layer] for layer in ddpm_dict['kernel_sizes']]
+    ddpm_dict['strides'] = [item[0] for item in ddpm_down_params]
+    ddpm_dict['kernel_sizes'] = [item[1] for item in ddpm_down_params]
+    ddpm_dict['paddings'] = [item[2] for item in ddpm_down_params]
 
     return ddpm_dict
 
 
-def create_config_dict(nnunet_config_dict, input_channels, n_epochs_multiplier, autoencoder_dict, ddpm_dict):
-
-    # features_per_stage = nnunet_config_dict['architecture']['arch_kwargs']['features_per_stage']
-    median_image_size = nnunet_config_dict['median_image_size_in_voxels']
-
+def create_config_dict(dataset_config, input_channels, n_epochs_multiplier, autoencoder_dict, ddpm_dict):
+    median_image_size = dataset_config['median_shape']
+    max_image_size = dataset_config['max_shape']
+    # For 2D, for each axis, use as size the closest multiple of 2, 3, 5 or 7 by powers of 2, to the corresponding size of max patch size
+    valid_2d_sizes = [32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 512]
+    patch_size_2d = [min(valid_2d_sizes, key=lambda x: abs(x - size)) for size in max_image_size]
     # For 3D, for each axis, use as size the closest multiple of 2, 3, or 7 by 2, to the corresponding size of nnunet median patch size
-    valid_sizes = [32, 48, 56, 64, 96, 112, 128, 192, 224, 256, 384, 448, 512]
-    patch_size_3d = [min(valid_sizes, key=lambda x: abs(x - size)) for size in median_image_size]
-    patch_size = nnunet_config_dict['patch_size'] if autoencoder_dict['spatial_dims'] == 2 else patch_size_3d
+    valid_3d_sizes = [32, 48, 56, 64, 96, 112, 128, 192, 224, 256, 384, 448, 512]
+    patch_size_3d = [min(valid_3d_sizes, key=lambda x: abs(x - size)) for size in median_image_size]
+    patch_size = patch_size_2d[1:] if autoencoder_dict['spatial_dims'] == 2 else patch_size_3d
+
+    if autoencoder_dict['spatial_dims'] == 2:
+        if 400 < np.max(patch_size):
+            batch_size = 16
+        elif 300 < np.max(patch_size) < 400:
+            batch_size = 32
+        elif 200 < np.max(patch_size) < 300:
+            batch_size = 64
+        else:
+            batch_size = 128
+    else:
+        batch_size = 2
 
     print(f"Patch size {autoencoder_dict['spatial_dims']}D: {patch_size}")
 
@@ -687,8 +966,8 @@ def create_config_dict(nnunet_config_dict, input_channels, n_epochs_multiplier, 
     # adjust the batch size and gradient accumulation
     if autoencoder_dict['spatial_dims'] == 2:
         # for 2d use 75% of batch size for both ae and ddpm
-        ae_batch_size = int(nnunet_config_dict['batch_size'] * 0.75)
-        ddpm_batch_size = int(nnunet_config_dict['batch_size'] * 0.75)
+        ae_batch_size = int(batch_size * 0.75)
+        ddpm_batch_size = int(batch_size * 0.75)
         grad_accumulate_step = 1
     else:
         ae_batch_size = 2
@@ -733,159 +1012,232 @@ def create_config_dict(nnunet_config_dict, input_channels, n_epochs_multiplier, 
         'ddpm_learning_rate': 2e-5,
         'ddpm_params': ddpm_dict
     }
-
-    # missing: grad_accumulate_step, q_weight, kl_weight, adv_weight, perc_weight, autoencoder_warm_up_epochs,
-    #          latent_space_type: "vae"
-
     return config
 
 
-def load_raw_patient_images(raw_path, patient_id):
-    # Load all channels for the patient from .nii.gz files
-    channel_files = sorted(glob.glob(os.path.join(raw_path, f"{patient_id}_*.nii.gz")))
-    if not channel_files:
-        raise FileNotFoundError(f"No .nii.gz files found for patient {patient_id} in {raw_path}")
-
-    channels = []
-    for ch_file in channel_files:
-        nii = nib.load(ch_file)
-        arr = nii.get_fdata(dtype=np.float32)  # get_fdata ensures float32 for consistency
-        channels.append(arr)
-
-    return np.stack(channels, axis=0)  # Shape: (C, D, H, W) or (C, H, W)
-
-
-def load_image(data_path, name):
-    dparams = {'nthreads': 1}
-
-    image_path_npy = os.path.join(data_path, name + '.npy')
-    image_path_npz = os.path.join(data_path, name + '.npz')
-    data_b2nd_file = os.path.join(data_path, name + '.b2nd')
-    pkl_file = os.path.join(data_path, name + '.pkl')
-
-    if os.path.isfile(image_path_npy):
-        image = np.load(image_path_npy, mmap_mode='r')
-    elif os.path.isfile(image_path_npz):
-        image = np.load(image_path_npz)['data']
-    elif os.path.isfile(data_b2nd_file):
-        image = blosc2.open(urlpath=data_b2nd_file, mode='r', dparams=dparams, mmap_mode='r')
-    else:
-        raise FileNotFoundError(f"No image file found for {name} in {data_path}")
-
-    with open(pkl_file, 'rb') as f:
-        properties = pickle.load(f)
-
-    return image, properties
-
-
 def calculate_min_max_per_channel(image):
-    return [(float(np.min(image[i])), float(np.max(image[i]))) for i in range(image.shape[0])]
+    data = image.get_fdata()
+    if data.ndim == 4:
+        return [(float(np.min(data[i])), float(np.max(data[i]))) for i in range(data.shape[0])]
+    else:
+        return [(float(np.min(data)), float(np.max(data)))]
 
 
-def save_min_max(data_path, patient_id, min_max):
-    output_path = os.path.join(data_path, f"{patient_id}_min_max.pkl")
+def save_properties(data_path, patient_id, properties):
+    output_path = os.path.join(data_path, f"{patient_id}.pkl")
     with open(output_path, 'wb') as f:
-        pickle.dump(min_max, f)
+        pickle.dump(properties, f)
 
 
-def process_patient(patient_id, nnunet_raw_path, nnunet_2d_path, nnunet_3d_path):
-    result = {"patient_id": patient_id, "errors": 0}
+def extract_spacing(path):
+    img = nib.load(path)
+    spacing = np.sqrt(np.sum(img.affine[:3, :3] ** 2, axis=0))  # voxel spacing from affine
+    return spacing
 
-    try:
-        raw_image = load_raw_patient_images(nnunet_raw_path, patient_id)
-        raw_min_max = calculate_min_max_per_channel(raw_image)
-        save_min_max(nnunet_raw_path, patient_id, raw_min_max)
-        result["raw"] = raw_min_max
-    except Exception as e:
-        result["raw_error"] = f"{type(e).__name__}: {e}"
-        result["errors"] += 1
 
-    try:
-        image_2d, _ = load_image(nnunet_2d_path, patient_id)
-        min_max_2d = calculate_min_max_per_channel(image_2d)
-        save_min_max(nnunet_2d_path, patient_id, min_max_2d)
-        result["2d"] = min_max_2d
-    except Exception as e:
-        result["2d_error"] = f"{type(e).__name__}: {e}"
-        result["errors"] += 1
+def calculate_median_spacing(image_paths):
+    with ProcessPoolExecutor() as executor:
+        spacings = list(executor.map(extract_spacing, image_paths))
+    return tuple(np.median(spacings, axis=0))
 
-    try:
-        image_3d, _ = load_image(nnunet_3d_path, patient_id)
-        min_max_3d = calculate_min_max_per_channel(image_3d)
-        save_min_max(nnunet_3d_path, patient_id, min_max_3d)
-        result["3d"] = min_max_3d
-    except Exception as e:
-        result["3d_error"] = f"{type(e).__name__}: {e}"
-        result["errors"] += 1
 
-    return result
+def crop_image_label(image, label):
+    image_data = image.get_fdata()
+    label_data = label.get_fdata()
+    nonzero_mask = image_data != 0
+    nonzero_coords = np.array(np.where(nonzero_mask))
+    min_coords = nonzero_coords.min(axis=1)
+    max_coords = nonzero_coords.max(axis=1)
+    cropped_image = image_data[
+        min_coords[0]:max_coords[0]+1,
+        min_coords[1]:max_coords[1]+1,
+        min_coords[2]:max_coords[2]+1
+    ]
+    cropped_label = label_data[
+        min_coords[0]:max_coords[0]+1,
+        min_coords[1]:max_coords[1]+1,
+        min_coords[2]:max_coords[2]+1
+    ]
+    log_lines = [f"    Original size: {image_data.shape} - Cropped size: {cropped_image.shape}"]
+    cropped_image = nib.Nifti1Image(cropped_image, image.affine, image.header)
+    cropped_label = nib.Nifti1Image(cropped_label, image.affine, image.header)
+    return cropped_image, cropped_label, log_lines
+
+
+def resample_image_label(image, label, target_spacing):
+    image_data = image.get_fdata()
+    label_data = label.get_fdata()
+    original_spacing = np.sqrt(np.sum(image.affine[:3, :3] ** 2, axis=0))
+    if tuple(original_spacing) != tuple(target_spacing):
+        log_lines = ["    Difference with target spacing. Resampling image...",
+                    f"        Original spacing: {original_spacing} - Final spacing: {target_spacing}"]
+        zoom_factors = original_spacing / target_spacing
+        resampled_image_data = scipy.ndimage.zoom(image_data, zoom_factors, order=3)  # Trilinear interpolation
+        resampled_label_data = scipy.ndimage.zoom(label_data, zoom_factors, order=0)  # Nearest-neighbor
+        new_affine = np.copy(image.affine)
+        scaling_matrix = image.affine[:3, :3]
+        new_scaling = scaling_matrix @ np.diag(original_spacing / target_spacing)
+        new_affine[:3, :3] = new_scaling
+        resampled_image = nib.Nifti1Image(resampled_image_data, new_affine, image.header)
+        resampled_label = nib.Nifti1Image(resampled_label_data, new_affine, image.header)
+        return resampled_image, resampled_label
+    else:
+        log_lines = ["    No resampling needed"]
+        return image, label, log_lines
+
+
+def process_patient(patient_id, images_path, labels_path, images_save_path, labels_save_path, median_spacing):
+    log_lines = [f"Processing {patient_id}..."]
+
+    image_path = os.path.join(images_path, patient_id + '.nii.gz')
+    label_path = os.path.join(labels_path, patient_id + '.nii.gz')
+    image_save_path = os.path.join(images_save_path, patient_id + '.npz')
+    label_save_path = os.path.join(labels_save_path, patient_id + '.npz')
+
+    image = nib.load(image_path)
+    label = nib.load(label_path)
+
+    cropped_image, cropped_label, crop_log_lines = crop_image_label(image, label)
+    resampled_image, resampled_label, resample_log_lines = resample_image_label(cropped_image, cropped_label, median_spacing)
+    log_lines.extend(crop_log_lines), log_lines.extend(resample_log_lines)
+
+    # scale to 0-1 per channel based on the statistics of the entire volume
+    min_max = calculate_min_max_per_channel(resampled_image)
+    data = resampled_image.get_fdata()
+    mins = np.array([mm[0] for mm in min_max], dtype=np.float32).reshape((-1,) + (1,) * (data.ndim - 1))
+    maxs = np.array([mm[1] for mm in min_max], dtype=np.float32).reshape((-1,) + (1,) * (data.ndim - 1))
+    normalized_image_data = (data - mins) / (maxs - mins)
+
+    np.savez_compressed(image_save_path, data=normalized_image_data)
+    np.savez_compressed(label_save_path, data=resampled_label.get_fdata().astype(np.uint8))
+    log_lines.append(f"    Saved processed image to {image_save_path}")
+    log_lines.append(f"    Saved processed label to {label_save_path}")
+
+    # Label statistics
+    label_data = resampled_label.get_fdata()
+    unique_labels = np.unique(label_data).tolist()
+    non_zero_locations = {
+        int(lbl): np.argwhere(label_data == lbl).tolist()
+        for lbl in unique_labels if lbl != 0
+    }
+
+    properties = {'class_locations': non_zero_locations, 'min_max': min_max}
+    save_properties(images_save_path, patient_id, properties)
+
+    return {
+        "patient_id": patient_id,
+        "shape": normalized_image_data.shape,
+        "labels": [item for item in unique_labels if item != 0],
+        "log": "\n".join(log_lines)
+    }
+
+
+def process_patient_wrapper(args):
+    return process_patient(*args)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Automatically configure the parameters of image generation model "
-                                                 "with nnU-Net for dataset ID.")
-    parser.add_argument("-d", "--dataset_id", required=True, type=str, help="Dataset ID")
+    parser = argparse.ArgumentParser(description="Preprocess dataset and create configuration file.")
+    parser.add_argument("dataset_path", type=str, help="Path to dataset folder")
     parser.add_argument("-c", "--input_channels", required=False, type=validate_channels, default=None,
                         help="List of integers specifying input channel indexes to use. If not specified, all available channels will be used.")
 
     args = parser.parse_args()
-    dataset_id = args.dataset_id
+    dataset_path = args.dataset_path
     input_channels = args.input_channels
 
-    print(f"Configuring image generation parameters for Dataset ID: {dataset_id}")
+    # given dataset must be in the form TaskXXX_DatasetName and have an 'imagesTr' and 'labelsTr' folder with .nii.gz files
+    images_path = os.path.join(dataset_path, 'imagesTr')
+    labels_path = os.path.join(dataset_path, 'labelsTr')
+
+    basename = os.path.basename(dataset_path)
+    dataset_id = basename.split('_')[0][4:]
+    # format the task number to 3 digits with leading zeros
+    formatted_task_number = f"{int(dataset_id):03d}"
+    # standardized folder name
+    standardized_folder_name = f"Task{formatted_task_number}_" + "_".join(basename.split('_')[1:])
+    dataset_save_path = os.path.join(os.getenv('medimgen_preprocessed'), standardized_folder_name)
+
+    if os.path.exists(dataset_save_path):
+        raise FileExistsError(f"Dataset {os.path.basename(dataset_path)} already exists.")
+
+    images_save_path = os.path.join(dataset_save_path, 'imagesTr')
+    labels_save_path = os.path.join(dataset_save_path, 'labelsTr')
+
+    os.makedirs(images_save_path, exist_ok=True)
+    os.makedirs(labels_save_path, exist_ok=True)
+
+    image_paths = glob.glob(images_path + "/*.nii.gz")
+    patient_ids = sorted([os.path.basename(path).replace('.nii.gz', '') for path in image_paths])
+
+    print("Calculating median voxel spacing of the whole dataset...")
+    median_spacing = calculate_median_spacing(image_paths)
+    print(f"Median voxel spacing: {median_spacing}\n")
+
+    results = []
+    args_list = [(pid, images_path, labels_path, images_save_path, labels_save_path, median_spacing) for pid in
+                 patient_ids]
+
+    with ProcessPoolExecutor() as executor:
+        for result in executor.map(process_patient_wrapper, args_list):
+            print(result["log"])
+            results.append(result)
+
+    all_shapes_w_channel = [r["shape"] for r in results]
+    all_shapes_wo_channel = [r["shape"][:-1] for r in results]
+    all_labels = [lbl for r in results for lbl in r["labels"]]
+    unique_labels = sorted(set(all_labels))
+    n_patients = len(results)
+    n_channels = tuple(np.median(np.array(all_shapes_w_channel), axis=0).astype(int))[-1]
+
+    median_shape = list(reversed(tuple(np.median(np.array(all_shapes_wo_channel), axis=0).astype(int))))
+    min_shape = list(reversed(tuple(np.min(np.array(all_shapes_wo_channel), axis=0))))
+    max_shape = list(reversed(tuple(np.max(np.array(all_shapes_wo_channel), axis=0))))
+    print(f"\nMedian Shape: {median_shape}")
+    print(f"Min Shape: {min_shape}")
+    print(f"Max Shape: {max_shape}")
+
+    # save median image shape, median voxel spacing and n_labels in a dataset.json file
+    dataset_config = {
+        'median_shape': tuple(int(x) for x in median_shape),
+        'min_shape': tuple(int(x) for x in min_shape),
+        'max_shape': tuple(int(x) for x in max_shape),
+        'median_spacing': [float(x) for x in median_spacing],
+        'n_classes': int(len(unique_labels)),
+        'class_labels': [int(c) for c in unique_labels],
+        'n_channels': int(n_channels),
+        'n_patients': int(n_patients)
+    }
+    with open(os.path.join(dataset_save_path, 'dataset.json'), 'w') as f:
+        json.dump(dataset_config, f, indent=4)
+
+    print(f"Dataset configuration file saved in {os.path.join(dataset_save_path, 'dataset.json')}")
+
+    print(f"\nConfiguring image generation parameters for Dataset ID: {dataset_id}")
     print(f"Input channels: {input_channels if input_channels is not None else 'all'}")
 
-    # configure image generation with nnunet files
-    preprocessed_dataset_path = glob.glob(os.getenv('nnUNet_preprocessed') + f'/Dataset{dataset_id}*/')[0]
-    nnunet_plan_path = os.path.join(preprocessed_dataset_path, 'nnUNetPlans.json')
-    nnunet_data_json_path = os.path.join(preprocessed_dataset_path, 'dataset.json')
-
-    with open(nnunet_plan_path, "r") as file:
-        nnunet_plan = json.load(file)
-
-    with open(nnunet_data_json_path, "r") as file:
-        nnunet_data_json = json.load(file)
-
     input_channels = input_channels if input_channels is not None \
-        else [i for i in range(len(nnunet_data_json['channel_names']))]
+        else [i for i in range(dataset_config['n_channels'])]
 
-    if 0.7 * nnunet_data_json['numTraining'] < 100:
+    if 0.7 * dataset_config['n_patients'] < 100:
         n_epochs_multiplier = 1
-    elif 100 < 0.7 * nnunet_data_json['numTraining'] < 500:
+    elif 100 < 0.7 * dataset_config['n_patients'] < 500:
         n_epochs_multiplier = 2
     else:
         n_epochs_multiplier = 3
 
-    configuration_2d = nnunet_plan['configurations']['2d']
-    configuration_3d = nnunet_plan['configurations']['3d_fullres']
+    vae_dict_2d = create_autoencoder_dict(dataset_config, input_channels, spatial_dims=2)
+    vae_dict_3d = create_autoencoder_dict(dataset_config, input_channels, spatial_dims=3)
 
-    # for item in configuration_2d:
-    #     print(item, configuration_2d[item])
+    ddpm_dict_2d = create_ddpm_dict(dataset_config, spatial_dims=2)
+    ddpm_dict_3d = create_ddpm_dict(dataset_config, spatial_dims=3)
 
-    vae_dict_2d = create_autoencoder_dict(configuration_2d, input_channels, spatial_dims=2)
-    vae_dict_3d = create_autoencoder_dict(configuration_3d, input_channels, spatial_dims=3)
-
-    ddpm_dict_2d = create_ddpm_dict(configuration_2d, spatial_dims=2)
-    ddpm_dict_3d = create_ddpm_dict(configuration_3d, spatial_dims=3)
-
-    config_2d = create_config_dict(configuration_2d, input_channels, n_epochs_multiplier, vae_dict_2d, ddpm_dict_2d)
-    config_3d = create_config_dict(configuration_3d, input_channels, n_epochs_multiplier, vae_dict_3d, ddpm_dict_3d)
+    config_2d = create_config_dict(dataset_config, input_channels, n_epochs_multiplier, vae_dict_2d, ddpm_dict_2d)
+    config_3d = create_config_dict(dataset_config, input_channels, n_epochs_multiplier, vae_dict_3d, ddpm_dict_3d)
 
     config = {'2D': config_2d, '3D': config_3d}
 
-    # TODO: define gradient accumulation and activation checkpointing based on the required gpu memory usage
-    # TODO: in the training code, define learning rates, learning rate schedulers, optimizer, time scheduler
-
-    # all networks have group norm implemented. To convert group norm to instance norm just use n_groups = n_channels
-
-    # TODO: adapt networks with given activations, normalizations, and convolution sizes
-    # TODO: define all the loss weights and autoencoder warm up epochs
-
-    # for item in config['2D']:
-    #     print(item)
-    #     print(config['2D'][item])
-
-    config_save_path = os.path.join(preprocessed_dataset_path, 'medimgen_config.yaml')
+    config_save_path = os.path.join(dataset_save_path, 'medimgen_config.yaml')
 
     # Custom Dumper to avoid anchors and enforce list formatting
     class CustomDumper(yaml.SafeDumper):
@@ -902,61 +1254,151 @@ def main():
     with open(config_save_path, "w") as file:
         yaml.dump(config, file, sort_keys=False, Dumper=CustomDumper)
 
-    print(f"Configuration file for Dataset {dataset_id} saved at {config_save_path}")
+    print(f"Experiment configuration file saved at {config_save_path}")
 
-    print("Calculating min-max per patient...")
-    nnunet_2d_path = os.path.join(preprocessed_dataset_path, 'nnUNetPlans_2d')
-    nnunet_3d_path = os.path.join(preprocessed_dataset_path, 'nnUNetPlans_3d_fullres')
-    nnunet_raw_path = glob.glob(os.getenv('nnUNet_raw') + f'/Dataset{dataset_id}*/')[0]
-    nnunet_raw_path = os.path.join(nnunet_raw_path, 'imagesTr')
 
-    file_paths = glob.glob(os.path.join(nnunet_2d_path, "*.npz"))
-    patient_ids = [os.path.basename(fp).replace('.npz', '') for fp in file_paths]
-    if not patient_ids:
-        # we got .b2nd files
-        file_paths = glob.glob(os.path.join(nnunet_2d_path, "*.b2nd"))
-        patient_ids = [os.path.basename(fp).replace('.b2nd', '') for fp in file_paths if '_seg' not in fp]
-    print(f"Found {len(patient_ids)} patients.")
 
-    max_workers = 8
-    total_errors = 0
-    patients_with_errors = []
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
-        func = partial(process_patient, nnunet_raw_path=nnunet_raw_path,
-                                        nnunet_2d_path=nnunet_2d_path,
-                                        nnunet_3d_path=nnunet_3d_path)
 
-        futures = {executor.submit(func, pid): pid for pid in patient_ids}
 
-        for future in concurrent.futures.as_completed(futures):
-            pid = futures[future]
-            try:
-                result = future.result()
-                errors = result["errors"]
-                if errors:
-                    total_errors += errors
-                    patients_with_errors.append((pid, errors))
-                    print(f"⚠️  {pid} had {errors} error(s):")
-                    for key in ["raw_error", "2d_error", "3d_error"]:
-                        if key in result:
-                            print(f"    {key.replace('_', ' ').upper()}: {result[key]}")
-                else:
-                    print(f"✅ {pid} processed successfully.")
-            except Exception as e:
-                total_errors += 3  # Assume all 3 failed if outer fails
-                patients_with_errors.append((pid, 3))
-                print(f"❌ {pid} failed completely: {e}")
 
-    # Final summary
-    print("\n=== Summary ===")
-    print(f"Total patients processed: {len(patient_ids)}")
-    print(f"Patients with errors: {len(patients_with_errors)}")
-    print(f"Total individual errors: {total_errors}")
-    if patients_with_errors:
-        print("Patients with errors:")
-        for pid, count in patients_with_errors:
-            print(f"  - {pid}: {count} error(s)")
+
+# def main():
+#     parser = argparse.ArgumentParser(description="Automatically configure the parameters of image generation model "
+#                                                  "with nnU-Net for dataset ID.")
+#     parser.add_argument("-d", "--dataset_id", required=True, type=str, help="Dataset ID")
+#     parser.add_argument("-c", "--input_channels", required=False, type=validate_channels, default=None,
+#                         help="List of integers specifying input channel indexes to use. If not specified, all available channels will be used.")
+#
+#     args = parser.parse_args()
+#     dataset_id = args.dataset_id
+#     input_channels = args.input_channels
+#
+#     print(f"Configuring image generation parameters for Dataset ID: {dataset_id}")
+#     print(f"Input channels: {input_channels if input_channels is not None else 'all'}")
+#
+#     # configure image generation with nnunet files
+#     preprocessed_dataset_path = glob.glob(os.getenv('nnUNet_preprocessed') + f'/Dataset{dataset_id}*/')[0]
+#     nnunet_plan_path = os.path.join(preprocessed_dataset_path, 'nnUNetPlans.json')
+#     nnunet_data_json_path = os.path.join(preprocessed_dataset_path, 'dataset.json')
+#
+#     with open(nnunet_plan_path, "r") as file:
+#         nnunet_plan = json.load(file)
+#
+#     with open(nnunet_data_json_path, "r") as file:
+#         nnunet_data_json = json.load(file)
+#
+#     input_channels = input_channels if input_channels is not None \
+#         else [i for i in range(len(nnunet_data_json['channel_names']))]
+#
+#     if 0.7 * nnunet_data_json['numTraining'] < 100:
+#         n_epochs_multiplier = 1
+#     elif 100 < 0.7 * nnunet_data_json['numTraining'] < 500:
+#         n_epochs_multiplier = 2
+#     else:
+#         n_epochs_multiplier = 3
+#
+#     configuration_2d = nnunet_plan['configurations']['2d']
+#     configuration_3d = nnunet_plan['configurations']['3d_fullres']
+#
+#     # for item in configuration_2d:
+#     #     print(item, configuration_2d[item])
+#
+#     vae_dict_2d = create_autoencoder_dict(configuration_2d, input_channels, spatial_dims=2)
+#     vae_dict_3d = create_autoencoder_dict(configuration_3d, input_channels, spatial_dims=3)
+#
+#     ddpm_dict_2d = create_ddpm_dict(configuration_2d, spatial_dims=2)
+#     ddpm_dict_3d = create_ddpm_dict(configuration_3d, spatial_dims=3)
+#
+#     config_2d = create_config_dict(configuration_2d, input_channels, n_epochs_multiplier, vae_dict_2d, ddpm_dict_2d)
+#     config_3d = create_config_dict(configuration_3d, input_channels, n_epochs_multiplier, vae_dict_3d, ddpm_dict_3d)
+#
+#     config = {'2D': config_2d, '3D': config_3d}
+#
+#     # TODO: define gradient accumulation and activation checkpointing based on the required gpu memory usage
+#     # TODO: in the training code, define learning rates, learning rate schedulers, optimizer, time scheduler
+#
+#     # all networks have group norm implemented. To convert group norm to instance norm just use n_groups = n_channels
+#
+#     # TODO: adapt networks with given activations, normalizations, and convolution sizes
+#     # TODO: define all the loss weights and autoencoder warm up epochs
+#
+#     # for item in config['2D']:
+#     #     print(item)
+#     #     print(config['2D'][item])
+#
+#     config_save_path = os.path.join(preprocessed_dataset_path, 'medimgen_config.yaml')
+#
+#     # Custom Dumper to avoid anchors and enforce list formatting
+#     class CustomDumper(yaml.SafeDumper):
+#         def ignore_aliases(self, data):
+#             return True  # Removes YAML anchors (&id001)
+#
+#     # Ensure lists stay in flow style
+#     def represent_list(dumper, data):
+#         return dumper.represent_sequence('tag:yaml.org,2002:seq', data, flow_style=True)
+#
+#     CustomDumper.add_representer(list, represent_list)
+#
+#     # Save to YAML with all fixes
+#     with open(config_save_path, "w") as file:
+#         yaml.dump(config, file, sort_keys=False, Dumper=CustomDumper)
+#
+#     print(f"Configuration file for Dataset {dataset_id} saved at {config_save_path}")
+#
+#     print("Calculating min-max per patient...")
+#     nnunet_2d_path = os.path.join(preprocessed_dataset_path, 'nnUNetPlans_2d')
+#     nnunet_3d_path = os.path.join(preprocessed_dataset_path, 'nnUNetPlans_3d_fullres')
+#     nnunet_raw_path = glob.glob(os.getenv('nnUNet_raw') + f'/Dataset{dataset_id}*/')[0]
+#     nnunet_raw_path = os.path.join(nnunet_raw_path, 'imagesTr')
+#
+#     file_paths = glob.glob(os.path.join(nnunet_2d_path, "*.npz"))
+#     patient_ids = [os.path.basename(fp).replace('.npz', '') for fp in file_paths]
+#     if not patient_ids:
+#         # we got .b2nd files
+#         file_paths = glob.glob(os.path.join(nnunet_2d_path, "*.b2nd"))
+#         patient_ids = [os.path.basename(fp).replace('.b2nd', '') for fp in file_paths if '_seg' not in fp]
+#     print(f"Found {len(patient_ids)} patients.")
+#
+#     max_workers = 8
+#     total_errors = 0
+#     patients_with_errors = []
+#
+#     with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+#         func = partial(process_patient, nnunet_raw_path=nnunet_raw_path,
+#                                         nnunet_2d_path=nnunet_2d_path,
+#                                         nnunet_3d_path=nnunet_3d_path)
+#
+#         futures = {executor.submit(func, pid): pid for pid in patient_ids}
+#
+#         for future in concurrent.futures.as_completed(futures):
+#             pid = futures[future]
+#             try:
+#                 result = future.result()
+#                 errors = result["errors"]
+#                 if errors:
+#                     total_errors += errors
+#                     patients_with_errors.append((pid, errors))
+#                     print(f"⚠️  {pid} had {errors} error(s):")
+#                     for key in ["raw_error", "2d_error", "3d_error"]:
+#                         if key in result:
+#                             print(f"    {key.replace('_', ' ').upper()}: {result[key]}")
+#                 else:
+#                     print(f"✅ {pid} processed successfully.")
+#             except Exception as e:
+#                 total_errors += 3  # Assume all 3 failed if outer fails
+#                 patients_with_errors.append((pid, 3))
+#                 print(f"❌ {pid} failed completely: {e}")
+#
+#     # Final summary
+#     print("\n=== Summary ===")
+#     print(f"Total patients processed: {len(patient_ids)}")
+#     print(f"Patients with errors: {len(patients_with_errors)}")
+#     print(f"Total individual errors: {total_errors}")
+#     if patients_with_errors:
+#         print("Patients with errors:")
+#         for pid, count in patients_with_errors:
+#             print(f"  - {pid}: {count} error(s)")
 
 
 

@@ -32,8 +32,9 @@ dependencies = [
 ]
 
 [project.scripts]
-medimgen_plan = "medimgen.configuration:main"
-medimgen_preprocess_dataset = "medimgen.preprocess_dataset:main"
+#medimgen_plan = "medimgen.configuration:main"
+#medimgen_preprocess_dataset = "medimgen.preprocess_dataset:main"
+medimgen_plan_and_preprocess = "medimgen.configuration:main"
 medimgen_train_ddpm = "medimgen.train_ddpm:main"
 medimgen_train_autoencoder = "medimgen.train_autoencoder:main"
 medimgen_train_ldm = "medimgen.train_ldm:main"

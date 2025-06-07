@@ -49,9 +49,11 @@ def create_split_files(dataset_id, splitting, model_type, seed=12345):
     - seed (int, optional): Random seed for reproducibility. Default is 12345.
     """
 
-    preprocessed_dataset_path = glob.glob(os.getenv('nnUNet_preprocessed') + f'/Dataset{dataset_id}*/')[0]
-    nnunet_path = "nnUNetPlans_2d" if model_type == '2d' else "nnUNetPlans_3d_fullres"
-    dataset_path = os.path.join(preprocessed_dataset_path, nnunet_path)
+    # preprocessed_dataset_path = glob.glob(os.getenv('nnUNet_preprocessed') + f'/Dataset{dataset_id}*/')[0]
+    preprocessed_dataset_path = glob.glob(os.getenv('medimgen_preprocessed') + f'/Task{dataset_id}*/')[0]
+    # nnunet_path = "nnUNetPlans_2d" if model_type == '2d' else "nnUNetPlans_3d_fullres"
+    # dataset_path = os.path.join(preprocessed_dataset_path, nnunet_path)
+    dataset_path = os.path.join(preprocessed_dataset_path, 'imagesTr')
 
     split_file_name = "splits_train_val_test.json" if splitting == "train-val-test" else "splits_final.json"
     split_file_path = os.path.join(preprocessed_dataset_path, split_file_name)
@@ -114,9 +116,11 @@ def get_data_loaders(config, dataset_id, splitting, batch_size, model_type, tran
     split_file_path = create_split_files(dataset_id, splitting, model_type, seed=12345)
     data_ids = get_data_ids(split_file_path, fold)
 
-    preprocessed_dataset_path = glob.glob(os.getenv('nnUNet_preprocessed') + f'/Dataset{dataset_id}*/')[0]
-    nnunet_path = "nnUNetPlans_2d" if model_type == '2d' else "nnUNetPlans_3d_fullres"
-    dataset_path = os.path.join(preprocessed_dataset_path, nnunet_path)
+    # preprocessed_dataset_path = glob.glob(os.getenv('nnUNet_preprocessed') + f'/Dataset{dataset_id}*/')[0]
+    preprocessed_dataset_path = glob.glob(os.getenv('medimgen_preprocessed') + f'/Task{dataset_id}*/')[0]
+    # nnunet_path = "nnUNetPlans_2d" if model_type == '2d' else "nnUNetPlans_3d_fullres"
+    # dataset_path = os.path.join(preprocessed_dataset_path, nnunet_path)
+    dataset_path = os.path.join(preprocessed_dataset_path, 'imagesTr')
 
     train_ds = MedicalDataset(data_path=dataset_path, data_ids=data_ids['train'], batch_size=batch_size,
                               section="training", transformation_args=transformations,
@@ -439,15 +443,15 @@ class MedicalDataset(Dataset):
         with open(os.path.join(self.data_path, name + '.pkl'), mode='rb') as f:
             properties = pickle.load(f)
 
-        with open(os.path.join(self.data_path, name + '_min_max.pkl'), mode='rb') as f:
-            min_max = pickle.load(f)
+        # with open(os.path.join(self.data_path, name + '_min_max.pkl'), mode='rb') as f:
+        #     min_max = pickle.load(f)
 
-        return image, properties, min_max
+        return image, properties
 
     def __getitem__(self, indexes):
         batch_idx, sample_idx = indexes
         name = self.ids[sample_idx]
-        image, properties, min_max = self.load_image(name)
+        image, properties = self.load_image(name)
 
         # Decide if oversampling foreground is needed
         force_fg = self.oversampling_method(batch_idx)
@@ -462,22 +466,21 @@ class MedicalDataset(Dataset):
         # Select specific channels if channel_ids is provided
         if self.channel_ids is not None:
             image = image[self.channel_ids, ...]
-            min_max = [min_max[i] for i in self.channel_ids]
+            # min_max = [min_max[i] for i in self.channel_ids]
 
         if len(image.shape) < len(self.patch_size) + 1:
             image = np.expand_dims(image, axis=0)  # add channel dimension
         # image = np.expand_dims(image, axis=0)  # add batch dimension
 
+        # scale to 0-1 per channel based on the statistics of the entire volume
+        # mins = np.array([mm[0] for mm in min_max], dtype=np.float32).reshape((-1,) + (1,) * (image.ndim - 1))
+        # maxs = np.array([mm[1] for mm in min_max], dtype=np.float32).reshape((-1,) + (1,) * (image.ndim - 1))
+        # image = (image - mins) / (maxs - mins)
+
         image = np.squeeze(image, axis=1) if self.patch_size[0] == 1 else image
         image = torch.as_tensor(image).float()
         image = image.contiguous()
         image = self.transform(image)
-
-        # scale to 0-1 per channel based on the statistics of the entire volume
-        min_max_tensor = torch.tensor(min_max, dtype=image.dtype, device=image.device)  # Shape (C, 2)
-        mins = min_max_tensor[:, 0].view(-1, *[1] * (image.ndim - 1))  # (C, 1, 1) or (C, 1, 1, 1)
-        maxs = min_max_tensor[:, 1].view(-1, *[1] * (image.ndim - 1))
-        image = (image - mins) / (maxs - mins)
 
         image = torch.clamp(image, min=0.0, max=1.0)
 

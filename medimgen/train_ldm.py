@@ -612,7 +612,8 @@ def parse_arguments():
 
 
 def get_config_for_current_task(dataset_id, model_type, progress_bar, continue_training, initial_config=None):
-    preprocessed_dataset_path = glob.glob(os.getenv('nnUNet_preprocessed') + f'/Dataset{dataset_id}*/')[0]
+    # preprocessed_dataset_path = glob.glob(os.getenv('nnUNet_preprocessed') + f'/Dataset{dataset_id}*/')[0]
+    preprocessed_dataset_path = glob.glob(os.getenv('medimgen_preprocessed') + f'/Task{dataset_id}*/')[0]
     if not initial_config:
         config_path = os.path.join(preprocessed_dataset_path, 'medimgen_config.yaml')
         if os.path.exists(config_path):
