@@ -1,4 +1,4 @@
-# Hyperparameter-Free Medical Image Generation with nnU-Net and Monai
+# 2D/3D Hyperparameter-Free Medical Image Generation from 3D volumes
 
 ### Description
 Training and sampling with 2D or 3D image generation models on your dataset
@@ -8,15 +8,14 @@ can take a colossal amount of memory) With techniques like mixed precision,
 activation checkpointing, and gradient accumulation you will fit your model in
 your GPU!
 
-This project is heavily based on [nnU-Net](https://github.com/MIC-DKFZ/nnUNet) and 
+This project is inspired from [nnU-Net](https://github.com/MIC-DKFZ/nnUNet) and heavily based on 
 [MONAI generative models](https://github.com/Project-MONAI/GenerativeModels). Given a 
 dataset, nnU-Net automatically configures all the hyperparamaters that should be used 
-for this dataset on a segmentation task. We simply transfer some of these hyperparameters 
-to the task of training diffusion-latent diffusion models for medical image generation 
-based on MONAI generative models, and add some additional techniques to automate the 
-hyperparameter decision for each task. This project provides you with an easy way to 
-enhance your nnU-Net based segmentation models: generate images (and labels) and use 
-these to improve the performance of your segmentation model.
+for this dataset on a segmentation task. We follow the same idea to define robust enough
+hyperparameters for the task of training diffusion-latent diffusion models for medical 
+image generation based on MONAI generative models. This project provides you with an 
+easy way to enhance your segmentation models: generate images (and labels) with real 
+medical image ranges and use these to improve the performance of your segmentation model.
 
 ### Requirements
 - python 3.9.17, cuda 11.8, and at least one GPU with 8GB memory
@@ -69,53 +68,88 @@ If you want to further develop this project:
 
 ### Environment variables
 
-First, according to nnU-Net, you must set the nnU-Net related environment variables.
-Additionally, you will need to set 1 more variable for this project. In total:
+First, set some environment variables for the main dataset results folders:
 
 ```bash
-export nnUNet_raw="/path_to_your_folder/nnUNet_raw"
-export nnUNet_preprocessed="/path_to_your_folder/nnUNet_preprocessed"
-export nnUNet_results="/path_to_your_folder/nnUNet_results"
+export medimgen_preprocessed="/path_to_your_folder/medimgen_preprocessed"
 export medimgen_results="/path_to_your_folder/medimgen_results"
 ```
-For an explanation of the nnU-Net related variables see nnU-Net documentation. 
-medimgen_results is the path to the folder where all the image generation results 
-will be saved.
+All the preprocessed folders of this project will be stored in medimgen_preprocessed,
+and similarly all the results in medimgen_results.
 
 
 ### Dataset preparation
-You must create a dataset based on nnU-Net conventions. You can start with 
-a dataset which follows the [Medical Segmentation Decathlon](http://medicaldecathlon.com/) format, where
-all training images are contained in a folder called **imagesTr**, and are compressed 
-nifti files (.nii.gz), and convert the dataset to nnUNetv2 format with:
 
-```bash
-nnUNetv2_convert_MSD_dataset -i /path_to_original_dataset/Task01_MyDataset
-```
+- We follow initial dataset formats similar the [Medical Segmentation Decathlon](http://medicaldecathlon.com/)
+- To train models with this library you must put all your files in a folder with a name
+of the form: TaskXXX_DatasetName, where XXX should be a 3-digit number, potentially
+starting with 0s. 
+- All the images and/or labels should be in .nii.gz format 
+- The images should be stored in a folder called 'imagesTr', and the labels (if any) 
+in a folder called 'labelsTr'
 
-This should create a dataset in the nnUNet_raw folder called Dataset001_MyDataset, 
-splitting multiple channel images to separate images. For other available dataset 
-format options take a look at nnUNet documentation.
+[//]: # (You must create a dataset based on nnU-Net conventions. You can start with )
+
+[//]: # (a dataset which follows the [Medical Segmentation Decathlon]&#40;http://medicaldecathlon.com/&#41; format, where)
+
+[//]: # (all training images are contained in a folder called **imagesTr**, and are compressed )
+
+[//]: # (nifti files &#40;.nii.gz&#41;, and convert the dataset to nnUNetv2 format with:)
+
+[//]: # ()
+[//]: # (```bash)
+
+[//]: # (nnUNetv2_convert_MSD_dataset -i /path_to_original_dataset/Task01_MyDataset)
+
+[//]: # (```)
+
+[//]: # ()
+[//]: # (This should create a dataset in the nnUNet_raw folder called Dataset001_MyDataset, )
+
+[//]: # (splitting multiple channel images to separate images. For other available dataset )
+
+[//]: # (format options take a look at nnUNet documentation.)
 
 ### Dataset preprocessing
 
-Given a new dataset, nnU-Net will extract a dataset fingerprint (a set of 
-dataset-specific properties such as image sizes, voxel spacings, intensity 
-information etc). This information is used to design three U-Net configurations. 
-Each of these pipelines operates on its own preprocessed version of the dataset.
-
-The easiest way to run fingerprint extraction, experiment planning and 
-preprocessing is to use:
+To preprocess a dataset and make it ready for latent diffusion training run:
 
 ```bash
-nnUNetv2_plan_and_preprocess -d DATASET_ID --verify_dataset_integrity
+medimgen_plan_and_preprocess /path_to_dataset -c []
 ```
 
-This will create a new subfolder in your nnUNet_preprocessed folder named after the 
-dataset. All the images will be cropped to non-zero regions, resampled to the median voxel 
-spacing of the dataset, and depending on the image modality other processes should 
-be applied (e.g., for MRI images a z-score normalization will be used). For more 
-information check nnU-Net documentation.
+This will create a new folder
+
+[//]: # (Given a new dataset, nnU-Net will extract a dataset fingerprint &#40;a set of )
+
+[//]: # (dataset-specific properties such as image sizes, voxel spacings, intensity )
+
+[//]: # (information etc&#41;. This information is used to design three U-Net configurations. )
+
+[//]: # (Each of these pipelines operates on its own preprocessed version of the dataset.)
+
+[//]: # ()
+[//]: # (The easiest way to run fingerprint extraction, experiment planning and )
+
+[//]: # (preprocessing is to use:)
+
+[//]: # ()
+[//]: # (```bash)
+
+[//]: # (nnUNetv2_plan_and_preprocess -d DATASET_ID --verify_dataset_integrity)
+
+[//]: # (```)
+
+[//]: # ()
+[//]: # (This will create a new subfolder in your nnUNet_preprocessed folder named after the )
+
+[//]: # (dataset. All the images will be cropped to non-zero regions, resampled to the median voxel )
+
+[//]: # (spacing of the dataset, and depending on the image modality other processes should )
+
+[//]: # (be applied &#40;e.g., for MRI images a z-score normalization will be used&#41;. For more )
+
+[//]: # (information check nnU-Net documentation.)
 
 
 ### Configuration

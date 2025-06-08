@@ -1212,7 +1212,6 @@ def main():
     all_labels = [lbl for r in results for lbl in r["labels"]]
     unique_labels = sorted(set(all_labels))
     n_patients = len(results)
-    n_channels = tuple(np.median(np.array(all_shapes_w_channel), axis=0).astype(int))[-1]
 
     median_shape = tuple(np.median(np.array(all_shapes_wo_channel), axis=0).astype(int))
     min_shape = tuple(np.min(np.array(all_shapes_wo_channel), axis=0))
@@ -1220,6 +1219,8 @@ def main():
     print(f"\nMedian Shape: {median_shape}")
     print(f"Min Shape: {min_shape}")
     print(f"Max Shape: {max_shape}")
+
+    n_channels = median_shape[0] if len(median_shape) == 4 else 1
 
     # save median image shape, median voxel spacing and n_labels in a dataset.json file
     dataset_config = {
