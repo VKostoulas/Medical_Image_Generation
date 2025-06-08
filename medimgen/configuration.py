@@ -1120,6 +1120,8 @@ def process_patient(patient_id, images_path, labels_path, images_save_path, labe
 
     cropped_image, cropped_label, crop_log_lines = crop_image_label(image, label)
     resampled_image, resampled_label, resample_log_lines = resample_image_label(cropped_image, cropped_label, median_spacing)
+    if resampled_image.ndim == 3:
+        resampled_image = np.expand_dims(resampled_image, axis=0)
     resampled_image = np.transpose(resampled_image, (3, 2, 1, 0))
     resampled_label = np.transpose(resampled_label, (2, 1, 0))
     log_lines.extend(crop_log_lines), log_lines.extend(resample_log_lines)
