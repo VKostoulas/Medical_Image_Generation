@@ -1016,11 +1016,7 @@ def create_config_dict(dataset_config, input_channels, n_epochs_multiplier, auto
 
 
 def calculate_min_max_per_channel(image):
-    data = image.get_fdata()
-    if data.ndim == 4:
-        return [(float(np.min(data[i])), float(np.max(data[i]))) for i in range(data.shape[0])]
-    else:
-        return [(float(np.min(data)), float(np.max(data)))]
+    return [(float(np.min(image[i])), float(np.max(image[i]))) for i in range(image.shape[0])]
 
 
 def save_properties(data_path, patient_id, properties):
@@ -1060,7 +1056,7 @@ def crop_image_label(image, label):
     ]
     log_lines = [f"    Original size: {image_data.shape} - Cropped size: {cropped_image.shape}"]
     cropped_image = nib.Nifti1Image(cropped_image, image.affine, image.header)
-    cropped_label = nib.Nifti1Image(cropped_label, image.affine, image.header)
+    cropped_label = nib.Nifti1Image(cropped_label, label.affine, label.header)
     return cropped_image, cropped_label, log_lines
 
 
@@ -1072,18 +1068,12 @@ def resample_image_label(image, label, target_spacing):
         log_lines = ["    Difference with target spacing. Resampling image...",
                     f"        Original spacing: {original_spacing} - Final spacing: {target_spacing}"]
         zoom_factors = original_spacing / target_spacing
-        resampled_image_data = scipy.ndimage.zoom(image_data, zoom_factors, order=3)  # Trilinear interpolation
-        resampled_label_data = scipy.ndimage.zoom(label_data, zoom_factors, order=0)  # Nearest-neighbor
-        new_affine = np.copy(image.affine)
-        scaling_matrix = image.affine[:3, :3]
-        new_scaling = scaling_matrix @ np.diag(original_spacing / target_spacing)
-        new_affine[:3, :3] = new_scaling
-        resampled_image = nib.Nifti1Image(resampled_image_data, new_affine, image.header)
-        resampled_label = nib.Nifti1Image(resampled_label_data, new_affine, image.header)
-        return resampled_image, resampled_label
+        resampled_image = scipy.ndimage.zoom(image_data, zoom_factors, order=3)  # Trilinear interpolation
+        resampled_label = scipy.ndimage.zoom(label_data, zoom_factors, order=0)  # Nearest-neighbor
+        return resampled_image, resampled_label, log_lines
     else:
         log_lines = ["    No resampling needed"]
-        return image, label, log_lines
+        return image_data, label_data, log_lines
 
 
 def process_patient(patient_id, images_path, labels_path, images_save_path, labels_save_path, median_spacing):
@@ -1099,25 +1089,25 @@ def process_patient(patient_id, images_path, labels_path, images_save_path, labe
 
     cropped_image, cropped_label, crop_log_lines = crop_image_label(image, label)
     resampled_image, resampled_label, resample_log_lines = resample_image_label(cropped_image, cropped_label, median_spacing)
+    resampled_image = np.transpose(resampled_image, (3, 2, 1, 0))
+    resampled_label = np.transpose(resampled_label, (2, 1, 0))
     log_lines.extend(crop_log_lines), log_lines.extend(resample_log_lines)
 
     # scale to 0-1 per channel based on the statistics of the entire volume
     min_max = calculate_min_max_per_channel(resampled_image)
-    data = resampled_image.get_fdata()
-    mins = np.array([mm[0] for mm in min_max], dtype=np.float32).reshape((-1,) + (1,) * (data.ndim - 1))
-    maxs = np.array([mm[1] for mm in min_max], dtype=np.float32).reshape((-1,) + (1,) * (data.ndim - 1))
-    normalized_image_data = (data - mins) / (maxs - mins)
+    mins = np.array([mm[0] for mm in min_max], dtype=np.float32).reshape((-1,) + (1,) * (resampled_image.ndim - 1))
+    maxs = np.array([mm[1] for mm in min_max], dtype=np.float32).reshape((-1,) + (1,) * (resampled_image.ndim - 1))
+    normalized_image_data = (resampled_image - mins) / (maxs - mins)
 
-    np.savez_compressed(image_save_path, data=normalized_image_data)
-    np.savez_compressed(label_save_path, data=resampled_label.get_fdata().astype(np.uint8))
+    np.savez_compressed(image_save_path, data=normalized_image_data.astype(np.float32))
+    np.savez_compressed(label_save_path, data=resampled_label.astype(np.uint8))
     log_lines.append(f"    Saved processed image to {image_save_path}")
     log_lines.append(f"    Saved processed label to {label_save_path}")
 
     # Label statistics
-    label_data = resampled_label.get_fdata()
-    unique_labels = np.unique(label_data).tolist()
+    unique_labels = np.unique(resampled_label).tolist()
     non_zero_locations = {
-        int(lbl): np.argwhere(label_data == lbl).tolist()
+        int(lbl): np.argwhere(resampled_label == lbl).tolist()
         for lbl in unique_labels if lbl != 0
     }
 
@@ -1184,15 +1174,15 @@ def main():
             results.append(result)
 
     all_shapes_w_channel = [r["shape"] for r in results]
-    all_shapes_wo_channel = [r["shape"][:-1] for r in results]
+    all_shapes_wo_channel = [r["shape"][1:] for r in results]
     all_labels = [lbl for r in results for lbl in r["labels"]]
     unique_labels = sorted(set(all_labels))
     n_patients = len(results)
     n_channels = tuple(np.median(np.array(all_shapes_w_channel), axis=0).astype(int))[-1]
 
-    median_shape = list(reversed(tuple(np.median(np.array(all_shapes_wo_channel), axis=0).astype(int))))
-    min_shape = list(reversed(tuple(np.min(np.array(all_shapes_wo_channel), axis=0))))
-    max_shape = list(reversed(tuple(np.max(np.array(all_shapes_wo_channel), axis=0))))
+    median_shape = tuple(np.median(np.array(all_shapes_wo_channel), axis=0).astype(int))
+    min_shape = tuple(np.min(np.array(all_shapes_wo_channel), axis=0))
+    max_shape = tuple(np.max(np.array(all_shapes_wo_channel), axis=0))
     print(f"\nMedian Shape: {median_shape}")
     print(f"Min Shape: {min_shape}")
     print(f"Max Shape: {max_shape}")
