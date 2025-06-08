@@ -151,7 +151,7 @@ def _convert_to_npy(npz_file: str, unpack_segmentation: bool = True, overwrite_e
             except Exception as e:
                 print(f"Unable to open preprocessed file {npz_file}. Rerun nnUNetv2_preprocess!")
                 raise e
-            np.save(data_npy, npz_content['data'])
+            np.save(data_npy, np.ascontiguousarray(npz_content['data']))
 
         if unpack_segmentation and (overwrite_existing or not os.path.isfile(seg_npy)):
             try:
@@ -159,7 +159,7 @@ def _convert_to_npy(npz_file: str, unpack_segmentation: bool = True, overwrite_e
             except Exception as e:
                 print(f"Unable to open preprocessed file {npz_file}. Rerun nnUNetv2_preprocess!")
                 raise e
-            np.save(npz_file[:-4] + "_seg.npy", npz_content['seg'])
+            np.save(npz_file[:-4] + "_seg.npy", np.ascontiguousarray(npz_content['seg']))
 
         if verify_npy:
             try:
