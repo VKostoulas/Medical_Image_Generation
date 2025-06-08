@@ -1076,6 +1076,37 @@ def resample_image_label(image, label, target_spacing):
         return image_data, label_data, log_lines
 
 
+def get_sampled_class_locations(label_array, samples_per_slice=50):
+    class_locations = {}
+    unique_labels = np.unique(label_array)
+
+    for lbl in unique_labels:
+        if lbl == 0:
+            continue  # skip background
+
+        coords = []
+        for z in range(label_array.shape[0]):
+            slice_mask = label_array[z] == lbl
+            slice_coords = np.argwhere(slice_mask)
+
+            if slice_coords.shape[0] == 0:
+                continue  # no voxels for this label in this slice
+
+            if slice_coords.shape[0] > samples_per_slice:
+                indices = np.random.choice(slice_coords.shape[0], samples_per_slice, replace=False)
+                sampled = slice_coords[indices]
+            else:
+                sampled = slice_coords
+
+            # Add Z back as the first coordinate
+            sampled = [(z, y, x) for y, x in sampled]
+            coords.extend(sampled)
+
+        class_locations[int(lbl)] = coords
+
+    return class_locations
+
+
 def process_patient(patient_id, images_path, labels_path, images_save_path, labels_save_path, median_spacing):
     log_lines = [f"Processing {patient_id}..."]
 
@@ -1106,12 +1137,13 @@ def process_patient(patient_id, images_path, labels_path, images_save_path, labe
 
     # Label statistics
     unique_labels = np.unique(resampled_label).tolist()
-    non_zero_locations = {
-        int(lbl): np.argwhere(resampled_label == lbl).tolist()
-        for lbl in unique_labels if lbl != 0
-    }
+    class_locations = get_sampled_class_locations(resampled_label, samples_per_slice=50)
+    # non_zero_locations = {
+    #     int(lbl): np.argwhere(resampled_label == lbl).tolist()
+    #     for lbl in unique_labels if lbl != 0
+    # }
 
-    properties = {'class_locations': non_zero_locations, 'min_max': min_max}
+    properties = {'class_locations': class_locations, 'min_max': min_max}
     save_properties(images_save_path, patient_id, properties)
 
     return {
