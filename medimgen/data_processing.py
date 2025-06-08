@@ -407,10 +407,10 @@ class MedicalDataset(Dataset):
 
                 for i in range(dim):
                     if is_2d and i == 0:
-                        bbox_lbs[0] = selected_voxel[1]  # slice index
+                        bbox_lbs[0] = selected_voxel[0]  # slice index
                     elif not is_2d:
                         # 3D: all dims available; use voxel for z, keep y/x random for now
-                        bbox_lbs[i] = max(lbs[i], min(selected_voxel[i + 1] - self.initial_patch_size[i] // 2, ubs[i]))
+                        bbox_lbs[i] = max(lbs[i], min(selected_voxel[i] - self.initial_patch_size[i] // 2, ubs[i]))
             # Else: fallback to original random values (already set)
 
         # Overwrite H and W (last 2 dims) to be center-cropped
