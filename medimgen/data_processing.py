@@ -2,16 +2,20 @@ import os
 import torch
 import glob
 import json
+import zarr
 import blosc2
 import pickle
 import multiprocessing
 import numpy as np
+import torch.nn.functional as F
 
+from typing import Tuple
+from typing import Union, List
 from functools import partial
 from batchgenerators.utilities.file_and_folder_operations import subfiles
 from torch.utils.data import Dataset, DataLoader, Sampler
 from sklearn.model_selection import KFold, train_test_split
-from acvl_utils.cropping_and_padding.bounding_boxes import crop_and_pad_nd
+# from acvl_utils.cropping_and_padding.bounding_boxes import crop_and_pad_nd
 from batchgenerators.augmentations.utils import rotate_coords_3d, rotate_coords_2d
 from batchgeneratorsv2.transforms.intensity.brightness import MultiplicativeBrightnessTransform
 from batchgeneratorsv2.transforms.intensity.contrast import ContrastTransform, BGContrast
@@ -62,12 +66,16 @@ def create_split_files(dataset_id, splitting, model_type, seed=12345):
         print(f"Split file already exists at {split_file_path}. Using this for training.")
         return split_file_path
 
-    file_paths = glob.glob(os.path.join(dataset_path, "*.npz"))
-    file_names = [os.path.basename(fp).replace('.npz', '') for fp in file_paths]
+    file_paths = glob.glob(os.path.join(dataset_path, "*.zarr"))
+    file_names = [os.path.basename(fp).replace('.zarr', '') for fp in file_paths]
     if not file_names:
-        # we got .b2nd files
-        file_paths = glob.glob(os.path.join(dataset_path, "*.b2nd"))
-        file_names = [os.path.basename(fp).replace('.b2nd', '') for fp in file_paths if '_seg' not in fp]
+        # maybe we got .npz files
+        file_paths = glob.glob(os.path.join(dataset_path, "*.npz"))
+        file_names = [os.path.basename(fp).replace('.npz', '') for fp in file_paths]
+        if not file_names:
+            # we got .b2nd files
+            file_paths = glob.glob(os.path.join(dataset_path, "*.b2nd"))
+            file_names = [os.path.basename(fp).replace('.b2nd', '') for fp in file_paths if '_seg' not in fp]
 
     if splitting == "train-val-test":
         # Split data into 70% training, 10% validation, and 20% testing
@@ -135,6 +143,86 @@ def get_data_loaders(config, dataset_id, splitting, batch_size, model_type, tran
     train_loader = DataLoader(train_ds, batch_sampler=train_sampler, **loader_args)
     val_loader = DataLoader(val_ds, batch_sampler=val_sampler,**loader_args)
     return train_loader, val_loader
+
+
+def crop_and_pad_nd(
+        image: Union[torch.Tensor, np.ndarray, blosc2.ndarray.NDArray],
+        bbox: List[List[int]],
+        pad_value = 0
+) -> Union[torch.Tensor, np.ndarray]:
+    """
+    Crops a bounding box directly specified by bbox, excluding the upper bound.
+    If the bounding box extends beyond the image boundaries, the cropped area is padded
+    to maintain the desired size. Initial dimensions not included in bbox remain unaffected.
+
+    Parameters:
+    - image: N-dimensional torch.Tensor or np.ndarray representing the image
+    - bbox: List of [[dim_min, dim_max], ...] defining the bounding box for the last dimensions.
+
+    Returns:
+    - Cropped and padded patch of the requested bounding box size, as the same type as `image`.
+    """
+
+    # Determine the number of dimensions to crop based on bbox
+    crop_dims = len(bbox)
+    img_shape = image.shape
+    num_dims = len(img_shape)
+
+    # Initialize the crop and pad specifications for each dimension
+    slices = []
+    padding = []
+    output_shape = list(img_shape[:num_dims - crop_dims])  # Initial dimensions remain as in the original image
+    target_shape = output_shape + [max_val - min_val for min_val, max_val in bbox]
+
+    # Iterate through dimensions, applying bbox to the last `crop_dims` dimensions
+    for i in range(num_dims):
+        if i < num_dims - crop_dims:
+            # For initial dimensions not covered by bbox, include the entire dimension
+            slices.append(slice(None))
+            padding.append([0, 0])
+            output_shape.append(img_shape[i])  # Keep the initial dimensions as they are
+        else:
+            # For dimensions specified in bbox, directly use the min and max bounds
+            dim_idx = i - (num_dims - crop_dims)  # Index within bbox
+
+            min_val = bbox[dim_idx][0]
+            max_val = bbox[dim_idx][1]
+
+            # Check if the bounding box is completely outside the image bounds
+            if max_val <= 0 or min_val >= img_shape[i]:
+                # If outside bounds, return an empty array or tensor of the target shape
+                if isinstance(image, torch.Tensor):
+                    return torch.zeros(target_shape, dtype=image.dtype, device=image.device)
+                elif isinstance(image, (np.ndarray, blosc2.ndarray.NDArray, zarr.core.Array)):
+                    return np.zeros(target_shape, dtype=image.dtype)
+
+            # Calculate valid cropping ranges within image bounds, excluding the upper bound
+            valid_min = max(min_val, 0)
+            valid_max = min(max_val, img_shape[i])  # Exclude upper bound by using max_val directly
+            slices.append(slice(valid_min, valid_max))
+
+            # Calculate padding needed for this dimension
+            pad_before = max(0, -min_val)
+            pad_after = max(0, max_val - img_shape[i])
+            padding.append([pad_before, pad_after])
+
+            # Define the shape based on the bbox range in this dimension
+            output_shape.append(max_val - min_val)
+
+    # Crop the valid part of the bounding box
+    cropped = image[tuple(slices)]
+
+    # Apply padding to the cropped patch
+    if isinstance(image, torch.Tensor):
+        flattened_padding = [p for sublist in reversed(padding) for p in sublist]  # Flatten in reverse order for PyTorch
+        padded_cropped = F.pad(cropped, flattened_padding, mode="constant", value=pad_value)
+    elif isinstance(image, (np.ndarray, blosc2.ndarray.NDArray, zarr.core.Array)):
+        pad_width = [(p[0], p[1]) for p in padding]
+        padded_cropped = np.pad(cropped, pad_width=pad_width, mode='constant', constant_values=pad_value)
+    else:
+        raise ValueError(f'Unsupported image type {type(image)}')
+
+    return padded_cropped
 
 
 # TODO: Fix this?
@@ -222,26 +310,30 @@ class MedicalDataset(Dataset):
         return len(self.ids)
 
     def unpack_dataset(self, unpack_segmentation=False, overwrite_existing=False, num_processes=8, verify=False):
-        print("Unpacking dataset...")
-        with multiprocessing.get_context("spawn").Pool(num_processes) as p:
-            npz_files = subfiles(self.data_path, True, None, ".npz", True)
-            p.starmap(_convert_to_npy, zip(npz_files,
-                                           [unpack_segmentation] * len(npz_files),
-                                           [overwrite_existing] * len(npz_files),
-                                           [verify] * len(npz_files))
-                      )
+        npz_files = glob.glob(self.data_path + '*.npz')
+        if len(npz_files) > 0:
+            print("Unpacking dataset...")
+            with multiprocessing.get_context("spawn").Pool(num_processes) as p:
+                npz_files = subfiles(self.data_path, True, None, ".npz", True)
+                p.starmap(_convert_to_npy, zip(npz_files,
+                                               [unpack_segmentation] * len(npz_files),
+                                               [overwrite_existing] * len(npz_files),
+                                               [verify] * len(npz_files))
+                          )
 
     def pack_dataset(self):
-        npy_files_removed = 0
-        for filename in os.listdir(self.data_path):
-            if filename.endswith('.npy'):
-                file_path = os.path.join(self.data_path, filename)
-                try:
-                    os.remove(file_path)
-                    npy_files_removed += 1
-                except Exception as e:
-                    print(f"Error removing {file_path}: {e}")
-        print(f"{npy_files_removed} .npy files were deleted")
+        npy_files = glob.glob(self.data_path + '*.npy')
+        if len(npy_files) > 0:
+            npy_files_removed = 0
+            for filename in os.listdir(self.data_path):
+                if filename.endswith('.npy'):
+                    file_path = os.path.join(self.data_path, filename)
+                    try:
+                        os.remove(file_path)
+                        npy_files_removed += 1
+                    except Exception as e:
+                        print(f"Error removing {file_path}: {e}")
+            print(f"{npy_files_removed} .npy files were deleted")
 
     # from nnunet
     def get_initial_patch_size(self, rot_x, rot_y, rot_z, scale_range):
@@ -429,22 +521,26 @@ class MedicalDataset(Dataset):
     def load_image(self, name):
         dparams = {'nthreads': 1}
 
-        image_path_npy = os.path.join(self.data_path, name + '.npy')
-        if not os.path.isfile(image_path_npy):
-            image_path_npz = os.path.join(self.data_path, name + '.npz')
-            if not os.path.isfile(image_path_npz):
-                data_b2nd_file = os.path.join(self.data_path, name + '.b2nd')
-                image = blosc2.open(urlpath=data_b2nd_file, mode='r', dparams=dparams, mmap_mode='r')
-            else:
-                image = np.load(os.path.join(self.data_path, name + '.npz'))['data']
+        # Try .zarr first
+        zarr_path = os.path.join(self.data_path, name + '.zarr')
+        if os.path.isdir(zarr_path):
+            zgroup = zarr.open_group(zarr_path, mode='r')
+            image = zgroup['image']
         else:
-            image = np.load(image_path_npy, mmap_mode='r')
+            # Fallback to npy, npz, or b2nd
+            image_path_npy = os.path.join(self.data_path, name + '.npy')
+            if not os.path.isfile(image_path_npy):
+                image_path_npz = os.path.join(self.data_path, name + '.npz')
+                if not os.path.isfile(image_path_npz):
+                    data_b2nd_file = os.path.join(self.data_path, name + '.b2nd')
+                    image = blosc2.open(urlpath=data_b2nd_file, mode='r', dparams=dparams, mmap_mode='r')
+                else:
+                    image = np.load(os.path.join(self.data_path, name + '.npz'))['data']
+            else:
+                image = np.load(image_path_npy, mmap_mode='r')
 
         with open(os.path.join(self.data_path, name + '.pkl'), mode='rb') as f:
             properties = pickle.load(f)
-
-        # with open(os.path.join(self.data_path, name + '_min_max.pkl'), mode='rb') as f:
-        #     min_max = pickle.load(f)
 
         return image, properties
 
