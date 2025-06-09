@@ -1106,6 +1106,8 @@ def resample_image_label(image, target_spacing, label=None):
                     f"        Original spacing: {original_spacing} - Final spacing: {target_spacing}"]
         zoom_factors = original_spacing / target_spacing
         resampled_image = scipy.ndimage.zoom(image_data, zoom_factors, order=3)  # Trilinear interpolation
+        # clip resampling artifacts
+        resampled_image = np.clip(resampled_image, 0, None)
         if label:
             resampled_label = scipy.ndimage.zoom(label_data, zoom_factors, order=0)  # Nearest-neighbor
             return resampled_image, resampled_label, log_lines
@@ -1190,7 +1192,6 @@ def process_patient(patient_id, images_path, labels_path, images_save_path, labe
     log_lines.append(f"    Saved processed image to {image_save_path}")
     log_lines.append(f"    Saved processed label to {label_save_path}")
 
-    # Label statistics
     unique_labels = np.unique(resampled_label).tolist()
     class_locations = get_sampled_class_locations(resampled_label, samples_per_slice=50)
 
