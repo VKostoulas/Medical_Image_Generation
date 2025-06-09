@@ -28,7 +28,9 @@ dependencies = [
     "lpips",
     "blosc2",
     "xformers",
-    "gdown"
+    "gdown",
+    "zarr",
+    "numcodecs"
 ]
 
 [project.scripts]
