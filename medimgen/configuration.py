@@ -1016,10 +1016,6 @@ def create_config_dict(dataset_config, input_channels, n_epochs_multiplier, auto
     return config
 
 
-def calculate_min_max_per_channel(image):
-    return [(float(np.min(image[i])), float(np.max(image[i]))) for i in range(image.shape[0])]
-
-
 def save_properties(data_path, patient_id, properties):
     output_path = os.path.join(data_path, f"{patient_id}.pkl")
     with open(output_path, 'wb') as f:
@@ -1038,39 +1034,9 @@ def calculate_median_spacing(image_paths):
     return tuple(np.median(spacings, axis=0))
 
 
-def get_cropped_and_resampled_image_shape_and_channel_min_max(path, median_spacing):
-    img = nib.load(path)
-    cropped_image, *_ = crop_image_label(img)
-    resampled_image, *_ = resample_image_label(cropped_image, target_spacing=median_spacing)
-    if resampled_image.ndim == 3:
-        resampled_image = np.expand_dims(resampled_image, axis=-1)
-    resampled_image = np.transpose(resampled_image, (3, 2, 1, 0))
-    channel_mins = resampled_image.min(axis=(1, 2, 3))
-    channel_maxs = resampled_image.max(axis=(1, 2, 3))
-    return resampled_image.shape, channel_mins, channel_maxs
-
-
-def calculate_dataset_shapes_and_channel_min_max(image_paths, median_spacing):
-    # Prepare function with fixed spacing
-    fn = partial(get_cropped_and_resampled_image_shape_and_channel_min_max, median_spacing=median_spacing)
-
-    with ProcessPoolExecutor() as executor:
-        results = list(executor.map(fn, image_paths))
-
-    shapes, all_channel_mins, all_channel_maxs = zip(*results)
-    median_shape = tuple(np.median(np.array(shapes), axis=0).astype(int))
-    min_shape = tuple(np.min(np.array(shapes), axis=0).astype(int))
-    max_shape = tuple(np.max(np.array(shapes), axis=0).astype(int))
-    channel_mins_array = np.array(all_channel_mins)
-    channel_maxs_array = np.array(all_channel_maxs)
-    global_channel_min = np.min(channel_mins_array, axis=0)
-    global_channel_max = np.max(channel_maxs_array, axis=0)
-    return median_shape, min_shape, max_shape, global_channel_min, global_channel_max
-
-
 def crop_image_label(image, label=None):
     image_data = image.get_fdata()
-    if label:
+    if label is not None:
         label_data = label.get_fdata()
     nonzero_mask = image_data != 0
     nonzero_coords = np.array(np.where(nonzero_mask))
@@ -1081,16 +1047,14 @@ def crop_image_label(image, label=None):
         min_coords[1]:max_coords[1]+1,
         min_coords[2]:max_coords[2]+1
     ]
-    if label:
+    if label is not None:
         cropped_label = label_data[
             min_coords[0]:max_coords[0]+1,
             min_coords[1]:max_coords[1]+1,
             min_coords[2]:max_coords[2]+1
         ]
     log_lines = [f"    Original size: {image_data.shape} - Cropped size: {cropped_image.shape}"]
-    cropped_image = nib.Nifti1Image(cropped_image, image.affine, image.header)
-    if label:
-        cropped_label = nib.Nifti1Image(cropped_label, label.affine, label.header)
+    if label is not None:
         return cropped_image, cropped_label, log_lines
     else:
         return cropped_image, log_lines
@@ -1098,7 +1062,7 @@ def crop_image_label(image, label=None):
 
 def resample_image_label(image, target_spacing, label=None):
     image_data = image.get_fdata()
-    if label:
+    if label is not None:
         label_data = label.get_fdata()
     original_spacing = np.sqrt(np.sum(image.affine[:3, :3] ** 2, axis=0))
     if tuple(original_spacing) != tuple(target_spacing):
@@ -1108,17 +1072,82 @@ def resample_image_label(image, target_spacing, label=None):
         resampled_image = scipy.ndimage.zoom(image_data, zoom_factors, order=3)  # Trilinear interpolation
         # clip resampling artifacts
         resampled_image = np.clip(resampled_image, 0, None)
-        if label:
+        resampled_image = nib.Nifti1Image(resampled_image, image.affine, image.header)
+        if label is not None:
             resampled_label = scipy.ndimage.zoom(label_data, zoom_factors, order=0)  # Nearest-neighbor
+            resampled_label = nib.Nifti1Image(resampled_label, label.affine, label.header)
             return resampled_image, resampled_label, log_lines
         else:
             return resampled_image, log_lines
     else:
         log_lines = ["    No resampling needed"]
-        if label:
-            return image_data, label_data, log_lines
+        if label is not None:
+            return image, label, log_lines
         else:
-            return image_data, log_lines
+            return image, log_lines
+
+
+def normalize_foreground_percentiles(image, lower_p=0., upper_p=99.5):
+    """
+    Normalize a multi-channel image using percentile-based clipping and scaling.
+    Background (value==0) is preserved. Returns normalized image and per-channel min/max.
+
+    Args:
+        image: np.ndarray, shape (C, D, H, W) or (C, H, W)
+        lower_p: lower percentile (default: 5)
+        upper_p: upper percentile (default: 95)
+
+    Returns:
+        normalized: np.ndarray, same shape as input
+        min_max_per_channel: list of (vmin, vmax) for each channel
+    """
+    normalized = np.zeros_like(image, dtype=np.float32)
+    min_max_per_channel = []
+
+    for c in range(image.shape[0]):
+        channel_data = image[c]
+        foreground_mask = channel_data > 0
+
+        fg_vals = channel_data[foreground_mask]
+        vmin = np.percentile(fg_vals, lower_p)
+        vmax = np.percentile(fg_vals, upper_p)
+
+        clipped = np.clip(channel_data, vmin, vmax)
+        scaled = (clipped - vmin) / (vmax - vmin)
+
+        normalized[c] = np.where(foreground_mask, scaled, 0.0)
+        min_max_per_channel.append((vmin, vmax))
+
+    return normalized, min_max_per_channel
+
+
+def get_cropped_and_resampled_image_shape_and_channel_min_max(path, median_spacing):
+    img = nib.load(path)
+    resampled_image, *_ = resample_image_label(img, target_spacing=median_spacing)
+    cropped_image, *_ = crop_image_label(resampled_image)
+    if cropped_image.ndim == 3:
+        cropped_image = np.expand_dims(cropped_image, axis=-1)
+    cropped_image = np.transpose(cropped_image, (3, 2, 1, 0))
+    _, min_max_per_channel = normalize_foreground_percentiles(cropped_image)
+    return cropped_image.shape, min_max_per_channel
+
+
+def calculate_dataset_shapes_and_channel_min_max(image_paths, median_spacing):
+    # Prepare function with fixed spacing
+    fn = partial(get_cropped_and_resampled_image_shape_and_channel_min_max, median_spacing=median_spacing)
+
+    with ProcessPoolExecutor() as executor:
+        results = list(executor.map(fn, image_paths))
+
+    shapes, min_max_per_channel = zip(*results)
+    median_shape = tuple(np.median(np.array(shapes), axis=0).astype(int))
+    min_shape = tuple(np.min(np.array(shapes), axis=0).astype(int))
+    max_shape = tuple(np.max(np.array(shapes), axis=0).astype(int))
+
+    min_max_per_channel = np.array(min_max_per_channel)  # Shape: (num_images, num_channels, 2)
+    global_channel_min = min_max_per_channel[..., 0].min(axis=0)
+    global_channel_max = min_max_per_channel[..., 1].max(axis=0)
+    return median_shape, min_shape, max_shape, global_channel_min.tolist(), global_channel_max.tolist()
 
 
 def get_sampled_class_locations(label_array, samples_per_slice=50):
@@ -1163,19 +1192,15 @@ def process_patient(patient_id, images_path, labels_path, images_save_path, labe
     image = nib.load(image_path)
     label = nib.load(label_path)
 
-    cropped_image, cropped_label, crop_log_lines = crop_image_label(image, label)
-    resampled_image, resampled_label, resample_log_lines = resample_image_label(cropped_image, median_spacing, cropped_label)
-    if resampled_image.ndim == 3:
-        resampled_image = np.expand_dims(resampled_image, axis=-1)
-    resampled_image = np.transpose(resampled_image, (3, 2, 1, 0))
-    resampled_label = np.transpose(resampled_label, (2, 1, 0))
-    log_lines.extend(crop_log_lines), log_lines.extend(resample_log_lines)
+    resampled_image, resampled_label, resample_log_lines = resample_image_label(image, median_spacing, label)
+    cropped_image, cropped_label, crop_log_lines = crop_image_label(resampled_image, resampled_label)
+    if cropped_image.ndim == 3:
+        cropped_image = np.expand_dims(cropped_image, axis=-1)
+    cropped_image = np.transpose(cropped_image, (3, 2, 1, 0))
+    cropped_label = np.transpose(cropped_label, (2, 1, 0))
+    log_lines.extend(resample_log_lines), log_lines.extend(crop_log_lines)
 
-    # scale to 0-1 per channel based on the statistics of the entire volume
-    min_max = calculate_min_max_per_channel(resampled_image)
-    mins = np.array([mm[0] for mm in min_max], dtype=np.float32).reshape((-1,) + (1,) * (resampled_image.ndim - 1))
-    maxs = np.array([mm[1] for mm in min_max], dtype=np.float32).reshape((-1,) + (1,) * (resampled_image.ndim - 1))
-    normalized_image_data = (resampled_image - mins) / (maxs - mins)
+    normalized_image_data, min_max = normalize_foreground_percentiles(cropped_image)
 
     compressor = Blosc(cname='zstd', clevel=5, shuffle=Blosc.BITSHUFFLE)
     # Choose chunk size based on data shape and access pattern
@@ -1185,15 +1210,15 @@ def process_patient(patient_id, images_path, labels_path, images_save_path, labe
     z_image = zarr.open(image_save_path, mode='w')
     z_image.create_dataset(name='image', data=normalized_image_data.astype(np.float32), chunks=image_chunks, compressor=compressor, overwrite=True)
     z_label = zarr.open(label_save_path, mode='w')
-    z_label.create_dataset(name='label', data=resampled_label.astype(np.uint8), chunks=label_chunks, compressor=compressor, overwrite=True)
+    z_label.create_dataset(name='label', data=cropped_label.astype(np.uint8), chunks=label_chunks, compressor=compressor, overwrite=True)
 
     # np.savez_compressed(image_save_path, data=normalized_image_data.astype(np.float32))
     # np.savez_compressed(label_save_path, data=resampled_label.astype(np.uint8))
     log_lines.append(f"    Saved processed image to {image_save_path}")
     log_lines.append(f"    Saved processed label to {label_save_path}")
 
-    unique_labels = np.unique(resampled_label).tolist()
-    class_locations = get_sampled_class_locations(resampled_label, samples_per_slice=50)
+    unique_labels = np.unique(cropped_label).tolist()
+    class_locations = get_sampled_class_locations(cropped_label, samples_per_slice=50)
 
     properties = {'class_locations': class_locations, 'min_max': min_max}
     save_properties(images_save_path, patient_id, properties)
@@ -1252,8 +1277,8 @@ def main():
     print(f"\nMedian Shape: {median_shape}")
     print(f"Min Shape: {min_shape}")
     print(f"Max Shape: {max_shape}")
-    print(f"Dataset min per channel: {global_channel_min}")
-    print(f"Dataset max per channel: {global_channel_max}\n")
+    print(f"Foreground min per channel: {global_channel_min}")
+    print(f"Foreground max per channel: {global_channel_max}\n")
 
     median_shape_w_channel = median_shape
     median_shape, min_shape, max_shape = median_shape[1:], min_shape[1:], max_shape[1:]
