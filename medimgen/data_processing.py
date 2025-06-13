@@ -410,10 +410,10 @@ class MedicalDataset(Dataset):
             do_dummy_2d_data_aug = False
             initial_patch_size = self.patch_size
             mirror_axes = (2,) if dim == 3 else (1,)
-            scale_range = (0.9, 1.2)
-            brightness_range = (0.9, 1.2)
-            contrast_range = (0.9, 1.2)
-            gamma_range = (0.9, 1.2)
+            scale_range = (0.9, 1.1)
+            brightness_range = (0.8, 1.2)
+            contrast_range = (0.8, 1.2)
+            gamma_range = (0.8, 1.2)
 
         augmentation_dict = {'rot_for_da': rotation_for_DA, 'do_dummy_2d': do_dummy_2d_data_aug,
                              'initial_patch_size': tuple(initial_patch_size), 'mirror_axes': mirror_axes,
