@@ -940,15 +940,15 @@ def create_config_dict(dataset_config, input_channels, n_epochs_multiplier, auto
     # not using augmentations for ddpm training
     ddpm_transformations = {
         "patch_size": patch_size,
-        "scaling": False,
+        "scaling": True,
         "rotation": False,
         "gaussian_noise": False,
         "gaussian_blur": False,
         "low_resolution": False,
-        "brightness": False,
-        "contrast": False,
-        "gamma": False,
-        "mirror": False,
+        "brightness": True,
+        "contrast": True,
+        "gamma": True,
+        "mirror": True,
         "dummy_2d": False
     }
 
@@ -992,7 +992,7 @@ def create_config_dict(dataset_config, input_channels, n_epochs_multiplier, auto
         'val_plot_interval': 10,
         'grad_clip_max_norm': 1,
         'grad_accumulate_step': grad_accumulate_step,
-        'oversample_ratio': 0.33,
+        'oversample_ratio': 0.5,
         'num_workers': 8,
         # 'lr_scheduler': "LinearLR",
         # 'lr_scheduler_params': {'start_factor': 1.0, 'end_factor': 0., 'total_iters': n_epochs},
@@ -1121,6 +1121,26 @@ def normalize_foreground_percentiles(image, lower_p=0., upper_p=99.5):
     return normalized, min_max_per_channel
 
 
+def normalize_zscore_then_minmax(image):
+    normalized = np.zeros_like(image, dtype=np.float32)
+    min_max_per_channel = []
+
+    for c in range(image.shape[0]):
+        channel_data = image[c]
+
+        vmin = np.min(channel_data)
+        vmax = np.max(channel_data)
+
+        z_image = (channel_data - np.mean(channel_data)) / np.std(channel_data)
+        z_min = np.min(z_image)
+        z_max = np.max(z_image)
+        normalized[c] = (z_image - z_min) / (z_max - z_min)
+
+        min_max_per_channel.append((vmin, vmax))
+
+    return normalized, min_max_per_channel
+
+
 def get_cropped_and_resampled_image_shape_and_channel_min_max(path, median_spacing):
     img = nib.load(path)
     resampled_image, *_ = resample_image_label(img, target_spacing=median_spacing)
@@ -1128,7 +1148,7 @@ def get_cropped_and_resampled_image_shape_and_channel_min_max(path, median_spaci
     if cropped_image.ndim == 3:
         cropped_image = np.expand_dims(cropped_image, axis=-1)
     cropped_image = np.transpose(cropped_image, (3, 2, 1, 0))
-    _, min_max_per_channel = normalize_foreground_percentiles(cropped_image)
+    _, min_max_per_channel = normalize_zscore_then_minmax(cropped_image)
     return cropped_image.shape, min_max_per_channel
 
 
@@ -1200,7 +1220,7 @@ def process_patient(patient_id, images_path, labels_path, images_save_path, labe
     cropped_label = np.transpose(cropped_label, (2, 1, 0))
     log_lines.extend(resample_log_lines), log_lines.extend(crop_log_lines)
 
-    normalized_image_data, min_max = normalize_foreground_percentiles(cropped_image)
+    normalized_image_data, min_max = normalize_zscore_then_minmax(cropped_image)
 
     compressor = Blosc(cname='zstd', clevel=5, shuffle=Blosc.BITSHUFFLE)
     # Choose chunk size based on data shape and access pattern

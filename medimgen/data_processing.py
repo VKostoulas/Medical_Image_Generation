@@ -506,9 +506,22 @@ class MedicalDataset(Dataset):
             # Else: fallback to original random values (already set)
 
         # Overwrite H and W (last 2 dims) to be center-cropped
+        # for i in range(dim - 2, dim):
+        #     center = data_shape[i] // 2
+        #     bbox_lbs[i] = center - self.initial_patch_size[i] // 2
         for i in range(dim - 2, dim):
-            center = data_shape[i] // 2
-            bbox_lbs[i] = center - self.initial_patch_size[i] // 2
+            crop_size = self.initial_patch_size[i]
+            image_size = data_shape[i]
+
+            center = image_size // 2
+            max_offset = min(10, center - crop_size // 2, image_size - center - (crop_size - crop_size // 2))
+
+            # Random offset in [-max_offset, +max_offset]
+            offset = np.random.randint(-max_offset, max_offset + 1)
+            adjusted_center = center + offset
+
+            # Ensure the crop stays within bounds
+            bbox_lbs[i] = max(0, min(adjusted_center - crop_size // 2, image_size - crop_size))
 
         bbox_ubs = [bbox_lbs[i] + self.initial_patch_size[i] for i in range(dim)]
         return bbox_lbs, bbox_ubs
