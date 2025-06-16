@@ -516,11 +516,12 @@ class MedicalDataset(Dataset):
             center = image_size // 2
             max_offset = min(10, center - crop_size // 2, image_size - center - (crop_size - crop_size // 2))
 
-            # Random offset in [-max_offset, +max_offset]
-            offset = np.random.randint(-max_offset, max_offset + 1)
-            adjusted_center = center + offset
+            if max_offset > 0:
+                offset = np.random.randint(-max_offset, max_offset + 1)
+            else:
+                offset = 0
 
-            # Ensure the crop stays within bounds
+            adjusted_center = center + offset
             bbox_lbs[i] = max(0, min(adjusted_center - crop_size // 2, image_size - crop_size))
 
         bbox_ubs = [bbox_lbs[i] + self.initial_patch_size[i] for i in range(dim)]
