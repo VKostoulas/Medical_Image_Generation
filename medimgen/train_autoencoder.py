@@ -796,7 +796,7 @@ def parse_arguments():
 
 def main():
     # Set temp dir BEFORE any other imports or logic
-    temp_dir = tempfile.mkdtemp(dir="/tmp")  # Explicitly use local disk
+    temp_dir = tempfile.mkdtemp()  # Explicitly use local disk
     print(f"Using temp directory: {temp_dir}")
     os.environ["TMPDIR"] = temp_dir
     tempfile.tempdir = temp_dir
