@@ -601,7 +601,7 @@ class AutoEncoder:
 
         optimizer_g, optimizer_d, g_lr_scheduler, d_lr_scheduler = self.get_optimizers_and_lr_schedules(discriminator)
 
-        self.adapt_kl_loss_weight(val_loader)
+        # self.adapt_kl_loss_weight(val_loader)
 
         if self.config['load_model_path']:
             start_epoch = self.load_model(self.config['load_model_path'], optimizer=optimizer_g, scheduler=g_lr_scheduler,

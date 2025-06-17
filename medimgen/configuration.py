@@ -1007,6 +1007,7 @@ def create_config_dict(dataset_config, input_channels, n_epochs_multiplier, auto
         'autoencoder_warm_up_epochs': 5,
         'adv_weight': 0.01,
         'perc_weight': 0.5 if autoencoder_dict['spatial_dims'] == 2 else 0.125,
+        'kl_weight': 1e-6 if autoencoder_dict['spatial_dims'] == 2 else 1e-7,
         'vae_params': autoencoder_dict,
         'perceptual_params': perceptual_params,
         'discriminator_params': discriminator_params,
