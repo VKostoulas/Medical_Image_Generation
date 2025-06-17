@@ -1,20 +1,20 @@
+import os
+import tempfile
+
+
 import warnings
 warnings.filterwarnings("ignore")
 
 import matplotlib
 matplotlib.use('Agg')
 
-import os
 import sys
 import glob
 import torch
 import time
 import pickle
 import shutil
-import traceback
 import argparse
-import tempfile
-import numpy as np
 import matplotlib.pyplot as plt
 
 from io import BytesIO
@@ -23,7 +23,6 @@ from tqdm import tqdm
 from torch.nn import L1Loss
 from torchinfo import summary
 from torch.cuda.amp import GradScaler, autocast
-from monai.utils import set_determinism
 from generative.networks.nets import VQVAE, PatchDiscriminator
 from generative.losses import PatchAdversarialLoss, PerceptualLoss
 
@@ -587,7 +586,7 @@ class AutoEncoder:
         if for_training:
             return checkpoint['epoch'] + 1
 
-    def train_main(self, train_loader, val_loader):
+    def train(self, train_loader, val_loader):
         scaler_g = GradScaler()
         scaler_d = GradScaler()
         total_start = time.time()
@@ -639,33 +638,33 @@ class AutoEncoder:
         total_time = time.time() - total_start
         print(f"Total training time: {time.strftime('%H:%M:%S', time.gmtime(total_time))}")
 
-    def train(self, train_loader, val_loader):
-        temp_dir = tempfile.mkdtemp()
-        print(f"Using temp directory: {temp_dir}")
-        os.environ["TMPDIR"] = temp_dir
-        tempfile.tempdir = temp_dir
-
-        # unpack .npz files to .npy
-        train_loader.dataset.unpack_dataset()
-
-        try:
-            self.train_main(train_loader=train_loader, val_loader=val_loader)
-        except KeyboardInterrupt:
-            print("\nTraining interrupted by user (KeyboardInterrupt).")
-        except Exception as e:
-            traceback.print_exc()
-        finally:
-            # Clean up no matter what
-            print("\nCleaning up dataset...")
-            not_clean = True
-            while not_clean:
-                try:
-                    shutil.rmtree(temp_dir)
-                    print(f"Temp directory {temp_dir} removed.")
-                    train_loader.dataset.pack_dataset()
-                    not_clean = False
-                except BaseException:
-                    continue
+    # def train(self, train_loader, val_loader):
+    #     temp_dir = tempfile.mkdtemp()
+    #     print(f"Using temp directory: {temp_dir}")
+    #     os.environ["TMPDIR"] = temp_dir
+    #     tempfile.tempdir = temp_dir
+    #
+    #     # unpack .npz files to .npy
+    #     train_loader.dataset.unpack_dataset()
+    #
+    #     try:
+    #         self.train_main(train_loader=train_loader, val_loader=val_loader)
+    #     except KeyboardInterrupt:
+    #         print("\nTraining interrupted by user (KeyboardInterrupt).")
+    #     except Exception as e:
+    #         traceback.print_exc()
+    #     finally:
+    #         # Clean up no matter what
+    #         print("\nCleaning up dataset...")
+    #         not_clean = True
+    #         while not_clean:
+    #             try:
+    #                 shutil.rmtree(temp_dir)
+    #                 print(f"Temp directory {temp_dir} removed.")
+    #                 train_loader.dataset.pack_dataset()
+    #                 not_clean = False
+    #             except BaseException:
+    #                 continue
 
 
 def infer_loss_weights_and_fit_gpu(dataset_id, model_type, initial_config):
@@ -796,37 +795,34 @@ def parse_arguments():
 
 
 def main():
+    # Set temp dir BEFORE any other imports or logic
+    temp_dir = tempfile.mkdtemp(dir="/tmp")  # Explicitly use local disk
+    print(f"Using temp directory: {temp_dir}")
+    os.environ["TMPDIR"] = temp_dir
+    tempfile.tempdir = temp_dir
 
-    args = parse_arguments()
-    dataset_id = args.dataset_id
-    splitting = args.splitting
-    model_type = args.model_type
-    fold = args.fold
-    latent_space_type = args.latent_space_type
-    progress_bar = args.progress_bar
-    continue_training = args.continue_training
+    try:
 
-    config = get_config_for_current_task(dataset_id, model_type, progress_bar, continue_training)
+        args = parse_arguments()
+        dataset_id = args.dataset_id
+        splitting = args.splitting
+        model_type = args.model_type
+        fold = args.fold
+        latent_space_type = args.latent_space_type
+        progress_bar = args.progress_bar
+        continue_training = args.continue_training
 
-    # TODO: need to add these to config
-    # config['batch_size'] = 4
-    # config['autoencoder_warm_up_epochs'] = 5
-    # config['grad_accumulate_step'] = 1
-    # config['kl_weight'] = 1e-8
-    # config['adv_weight'] = 0.25
-    # config['perc_weight'] = 1
-    # config['ae_learning_rate'] = 1e-2
-    # config['d_learning_rate'] = 1e-2
-    # config['grad_clip_max_norm'] = 1
+        config = get_config_for_current_task(dataset_id, model_type, progress_bar, continue_training)
 
-    # colon: adv_weight = 1, perc_weight = 4
-    # brain:
+        transformations = config['ae_transformations']
+        batch_size = config['ae_batch_size']
+        train_loader, val_loader = get_data_loaders(config, dataset_id, splitting, batch_size, model_type, transformations, fold)
 
-    # config['transformations']['patch_size'] = (64, 64) # TODO: remove this
-    transformations = config['ae_transformations']
-    batch_size = config['ae_batch_size']
-    train_loader, val_loader = get_data_loaders(config, dataset_id, splitting, batch_size, model_type, transformations, fold)
+        model = AutoEncoder(config=config, latent_space_type=latent_space_type)
+        model.train(train_loader=train_loader, val_loader=val_loader)
 
-    model = AutoEncoder(config=config, latent_space_type=latent_space_type)
-    model.train(train_loader=train_loader, val_loader=val_loader)
+    finally:
+
+        shutil.rmtree(temp_dir)
+        print(f"Temp directory {temp_dir} removed.")
 
