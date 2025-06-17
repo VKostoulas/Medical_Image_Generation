@@ -1141,6 +1141,29 @@ def normalize_zscore_then_minmax(image):
     return normalized, min_max_per_channel
 
 
+def normalize_zscore_then_clip_then_minmax(image):
+    normalized = np.zeros_like(image, dtype=np.float32)
+    min_max_per_channel = []
+
+    for c in range(image.shape[0]):
+        channel_data = image[c]
+
+        vmin = np.min(channel_data)
+        vmax = np.max(channel_data)
+
+        z_image = (channel_data - np.mean(channel_data)) / np.std(channel_data)
+
+        z_min = np.percentile(z_image, 0.5)
+        z_max = np.percentile(z_image, 99.5)
+        clipped = np.clip(z_image, z_min, z_max)
+
+        normalized[c] = (clipped - z_min) / (z_max - z_min)
+
+        min_max_per_channel.append((vmin, vmax))
+
+    return normalized, min_max_per_channel
+
+
 def get_cropped_and_resampled_image_shape_and_channel_min_max(path, median_spacing):
     img = nib.load(path)
     resampled_image, *_ = resample_image_label(img, target_spacing=median_spacing)
@@ -1148,7 +1171,7 @@ def get_cropped_and_resampled_image_shape_and_channel_min_max(path, median_spaci
     if cropped_image.ndim == 3:
         cropped_image = np.expand_dims(cropped_image, axis=-1)
     cropped_image = np.transpose(cropped_image, (3, 2, 1, 0))
-    _, min_max_per_channel = normalize_zscore_then_minmax(cropped_image)
+    _, min_max_per_channel = normalize_zscore_then_clip_then_minmax(cropped_image)
     return cropped_image.shape, min_max_per_channel
 
 
@@ -1220,7 +1243,7 @@ def process_patient(patient_id, images_path, labels_path, images_save_path, labe
     cropped_label = np.transpose(cropped_label, (2, 1, 0))
     log_lines.extend(resample_log_lines), log_lines.extend(crop_log_lines)
 
-    normalized_image_data, min_max = normalize_zscore_then_minmax(cropped_image)
+    normalized_image_data, min_max = normalize_zscore_then_clip_then_minmax(cropped_image)
 
     compressor = Blosc(cname='zstd', clevel=5, shuffle=Blosc.BITSHUFFLE)
     # Choose chunk size based on data shape and access pattern

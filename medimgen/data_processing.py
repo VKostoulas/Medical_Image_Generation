@@ -411,9 +411,9 @@ class MedicalDataset(Dataset):
             initial_patch_size = self.patch_size
             mirror_axes = (2,) if dim == 3 else (1,)
             scale_range = (0.9, 1.1)
-            brightness_range = (0.8, 1.2)
-            contrast_range = (0.8, 1.2)
-            gamma_range = (0.8, 1.2)
+            brightness_range = (0.9, 1.1)
+            contrast_range = (0.9, 1.1)
+            gamma_range = (0.9, 1.1)
 
         augmentation_dict = {'rot_for_da': rotation_for_DA, 'do_dummy_2d': do_dummy_2d_data_aug,
                              'initial_patch_size': tuple(initial_patch_size), 'mirror_axes': mirror_axes,
@@ -514,15 +514,15 @@ class MedicalDataset(Dataset):
             image_size = data_shape[i]
 
             center = image_size // 2
-            max_offset = min(10, center - crop_size // 2, image_size - center - (crop_size - crop_size // 2))
 
-            if max_offset > 0:
-                offset = np.random.randint(-max_offset, max_offset + 1)
+            if image_size < crop_size:
+                # Center the crop, allow negative lb if needed (handled later with padding)
+                bbox_lbs[i] = center - crop_size // 2
             else:
-                offset = 0
-
-            adjusted_center = center + offset
-            bbox_lbs[i] = max(0, min(adjusted_center - crop_size // 2, image_size - crop_size))
+                max_offset = min(10, center - crop_size // 2, image_size - center - (crop_size - crop_size // 2))
+                offset = np.random.randint(-max_offset, max_offset + 1) if max_offset > 0 else 0
+                adjusted_center = center + offset
+                bbox_lbs[i] = adjusted_center - crop_size // 2
 
         bbox_ubs = [bbox_lbs[i] + self.initial_patch_size[i] for i in range(dim)]
         return bbox_lbs, bbox_ubs
@@ -828,7 +828,7 @@ def define_nnunet_transformations(params, validation=False):
                     synchronize_channels=False,
                     p_per_channel=1,
                     p_retain_stats=1
-                ), apply_probability=0.1
+                ), apply_probability=0.
             ))
             transforms.append(RandomTransform(
                 GammaTransform(
