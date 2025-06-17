@@ -504,7 +504,7 @@ class LDM:
         if for_training:
             return checkpoint['epoch'] + 1
 
-    def train_main(self, train_loader, val_loader):
+    def train(self, train_loader, val_loader):
         scaler = GradScaler()
         total_start = time.time()
         start_epoch = 1
@@ -555,33 +555,33 @@ class LDM:
         total_time = time.time() - total_start
         print(f"Total training time: {time.strftime('%H:%M:%S', time.gmtime(total_time))}")
 
-    def train(self, train_loader, val_loader):
-        temp_dir = tempfile.mkdtemp()
-        print(f"Using temp directory: {temp_dir}")
-        os.environ["TMPDIR"] = temp_dir
-        tempfile.tempdir = temp_dir
-
-        # unpack .npz files to .npy
-        train_loader.dataset.unpack_dataset()
-
-        try:
-            self.train_main(train_loader=train_loader, val_loader=val_loader)
-        except KeyboardInterrupt:
-            print("\nTraining interrupted by user (KeyboardInterrupt).")
-        except Exception as e:
-            traceback.print_exc()
-        finally:
-            # Clean up no matter what
-            print("\nCleaning up dataset...")
-            not_clean = True
-            while not_clean:
-                try:
-                    shutil.rmtree(temp_dir)
-                    print(f"Temp directory {temp_dir} removed.")
-                    train_loader.dataset.pack_dataset()
-                    not_clean = False
-                except BaseException:
-                    continue
+    # def train(self, train_loader, val_loader):
+    #     temp_dir = tempfile.mkdtemp()
+    #     print(f"Using temp directory: {temp_dir}")
+    #     os.environ["TMPDIR"] = temp_dir
+    #     tempfile.tempdir = temp_dir
+    #
+    #     # unpack .npz files to .npy
+    #     train_loader.dataset.unpack_dataset()
+    #
+    #     try:
+    #         self.train_main(train_loader=train_loader, val_loader=val_loader)
+    #     except KeyboardInterrupt:
+    #         print("\nTraining interrupted by user (KeyboardInterrupt).")
+    #     except Exception as e:
+    #         traceback.print_exc()
+    #     finally:
+    #         # Clean up no matter what
+    #         print("\nCleaning up dataset...")
+    #         not_clean = True
+    #         while not_clean:
+    #             try:
+    #                 shutil.rmtree(temp_dir)
+    #                 print(f"Temp directory {temp_dir} removed.")
+    #                 train_loader.dataset.pack_dataset()
+    #                 not_clean = False
+    #             except BaseException:
+    #                 continue
 
 
 def parse_arguments():
@@ -645,27 +645,33 @@ def get_config_for_current_task(dataset_id, model_type, progress_bar, continue_t
 
 
 def main():
+    # Set temp dir BEFORE any other imports or logic
+    temp_dir = tempfile.mkdtemp(dir="/tmp")  # Explicitly use local disk
+    print(f"Using temp directory: {temp_dir}")
+    os.environ["TMPDIR"] = temp_dir
+    tempfile.tempdir = temp_dir
 
-    args = parse_arguments()
-    dataset_id = args.dataset_id
-    splitting = args.splitting
-    model_type = args.model_type
-    fold = args.fold
-    latent_space_type = args.latent_space_type
-    progress_bar = args.progress_bar
-    continue_training = args.continue_training
+    try:
 
-    config = get_config_for_current_task(dataset_id, model_type, progress_bar, continue_training)
+        args = parse_arguments()
+        dataset_id = args.dataset_id
+        splitting = args.splitting
+        model_type = args.model_type
+        fold = args.fold
+        latent_space_type = args.latent_space_type
+        progress_bar = args.progress_bar
+        continue_training = args.continue_training
 
-    # TODO: need to add these to config
-    # config['batch_size'] = 4
-    # config['grad_accumulate_step'] = 1
-    # config['ddpm_learning_rate'] = 1e-2
-    # config['grad_clip_max_norm'] = 1
+        config = get_config_for_current_task(dataset_id, model_type, progress_bar, continue_training)
 
-    transformations = config['ddpm_transformations']
-    batch_size = config['ddpm_batch_size']
-    train_loader, val_loader = get_data_loaders(config, dataset_id, splitting, batch_size, model_type, transformations, fold)
+        transformations = config['ddpm_transformations']
+        batch_size = config['ddpm_batch_size']
+        train_loader, val_loader = get_data_loaders(config, dataset_id, splitting, batch_size, model_type, transformations, fold)
 
-    model = LDM(config=config, latent_space_type=latent_space_type)
-    model.train(train_loader=train_loader, val_loader=val_loader)
+        model = LDM(config=config, latent_space_type=latent_space_type)
+        model.train(train_loader=train_loader, val_loader=val_loader)
+
+    finally:
+
+        shutil.rmtree(temp_dir)
+        print(f"Temp directory {temp_dir} removed.")
