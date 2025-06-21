@@ -30,7 +30,8 @@ dependencies = [
     "xformers",
     "gdown",
     "zarr",
-    "numcodecs"
+    "numcodecs",
+    "opencv-python"
 ]
 
 [project.scripts]

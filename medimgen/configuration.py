@@ -1,6 +1,7 @@
 import json
 import os
 import ast
+import cv2
 import glob
 import zarr
 import pickle
@@ -19,6 +20,8 @@ from datetime import datetime
 from numcodecs import Blosc
 from functools import partial
 from concurrent.futures import ProcessPoolExecutor
+from skimage.filters import threshold_otsu
+
 
 # def load_config(config_name):
 #     """Load default configuration from a YAML file."""
@@ -992,7 +995,7 @@ def create_config_dict(dataset_config, input_channels, n_epochs_multiplier, auto
         'val_plot_interval': 10,
         'grad_clip_max_norm': 1,
         'grad_accumulate_step': grad_accumulate_step,
-        'oversample_ratio': 0.5,
+        'oversample_ratio': 0.3,
         'num_workers': 8,
         # 'lr_scheduler': "LinearLR",
         # 'lr_scheduler_params': {'start_factor': 1.0, 'end_factor': 0., 'total_iters': n_epochs},
@@ -1165,25 +1168,47 @@ def normalize_zscore_then_clip_then_minmax(image):
     return normalized, min_max_per_channel
 
 
-def get_cropped_and_resampled_image_shape_and_channel_min_max(path, median_spacing):
+def compute_laplacian_variance(slice_2d):
+    norm_slice = cv2.normalize(slice_2d, None, 0, 255, cv2.NORM_MINMAX)
+    norm_slice_uint8 = norm_slice.astype(np.uint8)
+    lap = cv2.Laplacian(norm_slice_uint8, cv2.CV_64F)
+    return lap.var()
+
+
+def get_cropped_resampled_shape_channel_min_max_and_quality(path, median_spacing, input_channels):
     img = nib.load(path)
     resampled_image, *_ = resample_image_label(img, target_spacing=median_spacing)
     cropped_image, *_ = crop_image_label(resampled_image)
     if cropped_image.ndim == 3:
         cropped_image = np.expand_dims(cropped_image, axis=-1)
     cropped_image = np.transpose(cropped_image, (3, 2, 1, 0))
+    current_input_channels = input_channels if input_channels is not None else [i for i in range(cropped_image.shape[0])]
+
+    high_quality_dict = {'pass': True}
+    for c in range(cropped_image.shape[0]):
+        if c in current_input_channels:
+            # sampled_slices = cropped_image[c, ::5, :, :]  # sample every 5th slice to save time
+            # laplacian_variances = [compute_laplacian_variance(sampled_slices[i, :, :])
+            #                        for i in range(sampled_slices.shape[0])]
+            laplacian_variances = [compute_laplacian_variance(cropped_image[c, i, ...])
+                                   for i in range(cropped_image[c].shape[0])]
+            avg_laplacian_var = np.mean(laplacian_variances)
+            high_quality_dict[f'Channel {c}'] = avg_laplacian_var
+
     _, min_max_per_channel = normalize_zscore_then_clip_then_minmax(cropped_image)
-    return cropped_image.shape, min_max_per_channel
+
+    return cropped_image.shape, min_max_per_channel, high_quality_dict
 
 
-def calculate_dataset_shapes_and_channel_min_max(image_paths, median_spacing):
+def calculate_dataset_shapes_channel_min_max_anq_qualities(image_paths, median_spacing, input_channels, lq_threshold):
     # Prepare function with fixed spacing
-    fn = partial(get_cropped_and_resampled_image_shape_and_channel_min_max, median_spacing=median_spacing)
+    fn = partial(get_cropped_resampled_shape_channel_min_max_and_quality, input_channels=input_channels,
+                 median_spacing=median_spacing)
 
     with ProcessPoolExecutor() as executor:
         results = list(executor.map(fn, image_paths))
 
-    shapes, min_max_per_channel = zip(*results)
+    shapes, min_max_per_channel, high_quality_dicts = zip(*results)
     median_shape = tuple(np.median(np.array(shapes), axis=0).astype(int))
     min_shape = tuple(np.min(np.array(shapes), axis=0).astype(int))
     max_shape = tuple(np.max(np.array(shapes), axis=0).astype(int))
@@ -1191,7 +1216,61 @@ def calculate_dataset_shapes_and_channel_min_max(image_paths, median_spacing):
     min_max_per_channel = np.array(min_max_per_channel)  # Shape: (num_images, num_channels, 2)
     global_channel_min = min_max_per_channel[..., 0].min(axis=0)
     global_channel_max = min_max_per_channel[..., 1].max(axis=0)
-    return median_shape, min_shape, max_shape, global_channel_min.tolist(), global_channel_max.tolist()
+
+    current_input_channels = input_channels if input_channels is not None else [i for i in range(median_shape[0])]
+
+    for c in current_input_channels:
+
+        if lq_threshold is not None:
+
+            if lq_threshold == 'auto':
+                print('\nUsing automatic thresholding to detect low quality images')
+                current_channel_lp_vars = np.array([item[f'Channel {c}'] for item in high_quality_dicts])
+                threshold_1 = threshold_otsu(current_channel_lp_vars)
+                threshold_2 = np.percentile(current_channel_lp_vars, 5)
+                n_of_imgs_less_than_thr_1 = len([item for item in current_channel_lp_vars if item < threshold_1])
+                threshold = threshold_1 if n_of_imgs_less_than_thr_1 <= len(image_paths) / 3 else threshold_2
+            elif isinstance(lq_threshold, int):
+                print('\nUsing manual thresholding to detect low quality images')
+                threshold = lq_threshold
+            else:
+                raise ValueError("Argument 'lq_threshold' should be one of: None, 'auto', or an integer value")
+
+            print(f'Threshold: {threshold}')
+            for item in high_quality_dicts:
+                if item[f'Channel {c}'] < threshold:
+                    item['pass'] = False
+
+    return median_shape, min_shape, max_shape, global_channel_min.tolist(), global_channel_max.tolist(), high_quality_dicts
+
+
+# def get_cropped_and_resampled_image_shape_and_channel_min_max(path, median_spacing):
+#     img = nib.load(path)
+#     resampled_image, *_ = resample_image_label(img, target_spacing=median_spacing)
+#     cropped_image, *_ = crop_image_label(resampled_image)
+#     if cropped_image.ndim == 3:
+#         cropped_image = np.expand_dims(cropped_image, axis=-1)
+#     cropped_image = np.transpose(cropped_image, (3, 2, 1, 0))
+#     _, min_max_per_channel = normalize_zscore_then_clip_then_minmax(cropped_image)
+#     return cropped_image.shape, min_max_per_channel
+#
+#
+# def calculate_dataset_shapes_and_channel_min_max(image_paths, median_spacing):
+#     # Prepare function with fixed spacing
+#     fn = partial(get_cropped_and_resampled_image_shape_and_channel_min_max, median_spacing=median_spacing)
+#
+#     with ProcessPoolExecutor() as executor:
+#         results = list(executor.map(fn, image_paths))
+#
+#     shapes, min_max_per_channel = zip(*results)
+#     median_shape = tuple(np.median(np.array(shapes), axis=0).astype(int))
+#     min_shape = tuple(np.min(np.array(shapes), axis=0).astype(int))
+#     max_shape = tuple(np.max(np.array(shapes), axis=0).astype(int))
+#
+#     min_max_per_channel = np.array(min_max_per_channel)  # Shape: (num_images, num_channels, 2)
+#     global_channel_min = min_max_per_channel[..., 0].min(axis=0)
+#     global_channel_max = min_max_per_channel[..., 1].max(axis=0)
+#     return median_shape, min_shape, max_shape, global_channel_min.tolist(), global_channel_max.tolist()
 
 
 def get_sampled_class_locations(label_array, samples_per_slice=50):
@@ -1275,6 +1354,15 @@ def process_patient(patient_id, images_path, labels_path, images_save_path, labe
     }
 
 
+def validate_lq_threshold(value):
+    if value.lower() == 'auto':
+        return 'auto'
+    try:
+        return int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("lq_threshold must be 'auto', an integer, or not set (None).")
+
+
 def process_patient_wrapper(args):
     return process_patient(*args)
 
@@ -1284,10 +1372,14 @@ def main():
     parser.add_argument("dataset_path", type=str, help="Path to dataset folder")
     parser.add_argument("-c", "--input_channels", required=False, type=validate_channels, default=None,
                         help="List of integers specifying input channel indexes to use. If not specified, all available channels will be used.")
+    parser.add_argument("-lqt", "--lq_threshold", required=False, type=validate_lq_threshold, default=None,
+                        help="Threshold to separate high/low quality images based on Laplacian variance. "
+                             "Accepts 'auto', an integer, or None (default: None).")
 
     args = parser.parse_args()
     dataset_path = args.dataset_path
     input_channels = args.input_channels
+    lq_threshold = args.lq_threshold
 
     # given dataset must be in the form TaskXXX_DatasetName and have an 'imagesTr' and 'labelsTr' folder with .nii.gz files
     images_path = os.path.join(dataset_path, 'imagesTr')
@@ -1313,16 +1405,26 @@ def main():
     image_paths = glob.glob(images_path + "/*.nii.gz")
     patient_ids = sorted([os.path.basename(path).replace('.nii.gz', '') for path in image_paths])
 
-    print("Calculating median voxel spacing of the whole dataset...")
+    print(f"\nNumber of patients: {len(patient_ids)}")
+    print("\nCalculating median voxel spacing of the whole dataset...")
     median_spacing = calculate_median_spacing(image_paths)
-    print("Calculating dataset min and max values, and median, min, and max shape after cropping and resampling...")
-    median_shape, min_shape, max_shape, global_channel_min, global_channel_max = calculate_dataset_shapes_and_channel_min_max(image_paths, median_spacing)
-    print(f"Median voxel spacing: {median_spacing}")
-    print(f"\nMedian Shape: {median_shape}")
+    print(
+        "Calculating dataset min and max values, median, min, and max shape after cropping and resampling, and low quality images...")
+    dataset_results = calculate_dataset_shapes_channel_min_max_anq_qualities(image_paths, median_spacing,
+                                                                             input_channels, lq_threshold)
+    median_shape, min_shape, max_shape, global_channel_min, global_channel_max, high_quality_dicts = dataset_results
+    print(f"\nMedian voxel spacing: {median_spacing}")
+    print(f"Median Shape: {median_shape}")
     print(f"Min Shape: {min_shape}")
     print(f"Max Shape: {max_shape}")
-    print(f"Foreground min per channel: {global_channel_min}")
-    print(f"Foreground max per channel: {global_channel_max}\n")
+    print(f"Min per channel: {global_channel_min}")
+    print(f"Max per channel: {global_channel_max}")
+
+    if lq_threshold is not None:
+        print(f"\nNumber of low quality images: {np.sum([True for item in high_quality_dicts if not item['pass']])}")
+        image_paths = [item for i, item in enumerate(image_paths) if high_quality_dicts[i]['pass']]
+        patient_ids = sorted([os.path.basename(path).replace('.nii.gz', '') for path in image_paths])
+        print(f"Number of final patients: {len(patient_ids)}")
 
     median_shape_w_channel = median_shape
     median_shape, min_shape, max_shape = median_shape[1:], min_shape[1:], max_shape[1:]
