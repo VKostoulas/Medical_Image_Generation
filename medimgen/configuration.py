@@ -1443,12 +1443,12 @@ def auto_select_hyperparams(dataset_id, model_fn, config, model_type='2d', init_
         return batch_size, grad_accum
 
     if model_type == '2d':
+        grad_accum = 2
         while batch_size > min_batch_size:
             batch_size //= 2
             if try_run(batch_size, grad_accum):
                 return batch_size, grad_accum
-        # Try increasing grad accumulation
-        grad_accum = 2
+
         if try_run(min_batch_size, grad_accum):
             return min_batch_size, grad_accum
         else:
