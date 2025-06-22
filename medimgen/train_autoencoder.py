@@ -28,13 +28,14 @@ from generative.losses import PatchAdversarialLoss, PerceptualLoss
 
 from medimgen.data_processing import get_data_loaders
 from medimgen.autoencoderkl_with_strides import AutoencoderKL
-from medimgen.configuration import load_config
+from medimgen.utils import load_config
 from medimgen.utils import create_2d_image_reconstruction_plot, create_gif_from_images, save_all_losses
 
 
 class AutoEncoder:
-    def __init__(self, config, latent_space_type='vae'):
+    def __init__(self, config, latent_space_type='vae', print_summary=True):
         self.config = config
+        self.print_summary = print_summary
 
         self.l1_loss = L1Loss()
         self.adv_loss = PatchAdversarialLoss(criterion="least_squares")
@@ -608,10 +609,11 @@ class AutoEncoder:
                                           discriminator=discriminator, disc_optimizer=optimizer_d, disc_scheduler=d_lr_scheduler,
                                           for_training=True)
 
-        print("\nStarting training autoencoder model...")
-        summary(self.autoencoder, input_shape, batch_dim=None, depth=3)
-        summary(discriminator, input_shape, batch_dim=None, depth=3)
-        summary(perceptual_loss, [input_shape, input_shape], batch_dim=None, depth=3)
+        if self.print_summary:
+            print("\nStarting training autoencoder model...")
+            summary(self.autoencoder, input_shape, batch_dim=None, depth=3)
+            summary(discriminator, input_shape, batch_dim=None, depth=3)
+            summary(perceptual_loss, [input_shape, input_shape], batch_dim=None, depth=3)
 
         for epoch in range(start_epoch, self.config['n_epochs'] + 1):
             self.train_one_epoch(epoch, train_loader, discriminator, perceptual_loss, optimizer_g, optimizer_d, scaler_g, scaler_d)

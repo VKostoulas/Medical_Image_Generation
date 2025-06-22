@@ -3,6 +3,13 @@ matplotlib.use('Agg')
 
 import matplotlib.pyplot as plt
 import os
+import yaml
+
+
+def load_config(config_path):
+    with open(config_path, "r") as file:
+        config_file = yaml.safe_load(file)
+        return config_file
 
 
 def create_2d_image_plot(image_slice, save_path):

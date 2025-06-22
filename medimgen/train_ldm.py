@@ -32,7 +32,7 @@ from generative.losses.perceptual import medicalnet_intensity_normalisation
 from generative.metrics import FIDMetric, MMDMetric, SSIMMetric, MultiScaleSSIMMetric
 
 from medimgen.data_processing import get_data_loaders
-from medimgen.configuration import load_config
+from medimgen.utils import load_config
 from medimgen.autoencoderkl_with_strides import AutoencoderKL
 from medimgen.diffusion_model_unet_with_strides import DiffusionModelUNet
 from medimgen.utils import create_gif_from_images, save_all_losses

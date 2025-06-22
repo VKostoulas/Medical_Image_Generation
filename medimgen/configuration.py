@@ -6,6 +6,7 @@ import glob
 import zarr
 import pickle
 import scipy
+import shutil
 import sys
 import math
 import yaml
@@ -15,12 +16,18 @@ import matplotlib
 import nibabel as nib
 import numpy as np
 import concurrent.futures
+import torch
+import gc
+import copy
 
 from datetime import datetime
 from numcodecs import Blosc
 from functools import partial
 from concurrent.futures import ProcessPoolExecutor
 from skimage.filters import threshold_otsu
+
+from medimgen.data_processing import get_data_loaders
+from medimgen.train_autoencoder import AutoEncoder
 
 
 # def load_config(config_name):
@@ -34,11 +41,6 @@ from skimage.filters import threshold_otsu
 #         config_file = yaml.safe_load(file)
 #         config_file['config'] = final_config_name
 #         return config_file
-
-def load_config(config_path):
-    with open(config_path, "r") as file:
-        config_file = yaml.safe_load(file)
-        return config_file
 
 
 def add_preprocessing_args(parser):
@@ -914,14 +916,15 @@ def create_config_dict(dataset_config, input_channels, n_epochs_multiplier, auto
     patch_size = patch_size_2d[1:] if autoencoder_dict['spatial_dims'] == 2 else patch_size_3d
 
     if autoencoder_dict['spatial_dims'] == 2:
-        if 400 < np.max(patch_size):
-            batch_size = 16
-        elif 300 < np.max(patch_size) < 400:
-            batch_size = 32
-        elif 200 < np.max(patch_size) < 300:
-            batch_size = 64
-        else:
-            batch_size = 128
+        # if 400 < np.max(patch_size):
+        #     batch_size = 16
+        # elif 300 < np.max(patch_size) < 400:
+        #     batch_size = 32
+        # elif 200 < np.max(patch_size) < 300:
+        #     batch_size = 64
+        # else:
+        #     batch_size = 128
+        batch_size = 24
     else:
         batch_size = 2
 
@@ -967,23 +970,27 @@ def create_config_dict(dataset_config, input_channels, n_epochs_multiplier, auto
     n_epochs = 300 if autoencoder_dict['spatial_dims'] == 3 else 200
     n_epochs = n_epochs * n_epochs_multiplier
 
-    # adjust the batch size and gradient accumulation
-    if autoencoder_dict['spatial_dims'] == 2:
-        # for 2d use 75% of batch size for both ae and ddpm
-        ae_batch_size = int(batch_size * 0.75)
-        ddpm_batch_size = int(batch_size * 0.75)
-        grad_accumulate_step = 1
-    else:
-        ae_batch_size = 2
-        ddpm_batch_size = ae_batch_size * 2
-        grad_accumulate_step = 1
+    ae_batch_size = batch_size
+    ddpm_batch_size = ae_batch_size * 2
+    grad_accumulate_step = 1
 
-    # if batch size and patch size get large, use gradient accumulation
-    if math.prod(patch_size + [ae_batch_size]) > 2e+6:
-        ae_batch_size //= 2
-        ddpm_batch_size //= 2
-        grad_accumulate_step *= 2
-        print(f"We will use 2 gradient accumulation steps while training in {autoencoder_dict['spatial_dims']}D.")
+    # # adjust the batch size and gradient accumulation
+    # if autoencoder_dict['spatial_dims'] == 2:
+    #     # for 2d use 75% of batch size for both ae and ddpm
+    #     ae_batch_size = int(batch_size * 0.75)
+    #     ddpm_batch_size = int(batch_size * 0.75)
+    #     grad_accumulate_step = 1
+    # else:
+    #     ae_batch_size = 2
+    #     ddpm_batch_size = ae_batch_size * 2
+    #     grad_accumulate_step = 1
+    #
+    # # if batch size and patch size get large, use gradient accumulation
+    # if math.prod(patch_size + [ae_batch_size]) > 2e+6:
+    #     ae_batch_size //= 2
+    #     ddpm_batch_size //= 2
+    #     grad_accumulate_step *= 2
+    #     print(f"We will use 2 gradient accumulation steps while training in {autoencoder_dict['spatial_dims']}D.")
 
     config = {
         'input_channels': input_channels,
@@ -1367,6 +1374,97 @@ def process_patient_wrapper(args):
     return process_patient(*args)
 
 
+def default_memory_estimator(model, batch_size, model_type):
+    """
+    Placeholder memory estimator. Replace this with a proper memory estimator.
+    For now, it returns a mock value based on arbitrary assumptions.
+    """
+    base_mem = 4  # Assume base memory for model + optimizer
+    per_sample_mem = 0.5 if model_type == '2D' else 1.5  # GB per sample
+    return base_mem + batch_size * per_sample_mem
+
+
+def auto_select_hyperparams(dataset_id, model_fn, config, model_type='2d', init_batch_size=48, init_grad_accum=1):
+
+    assert model_type in ['2d', '3d'], "model_type must be either '2d' or '3d'"
+
+    batch_size = init_batch_size
+    grad_accum = init_grad_accum
+
+    min_batch_size = 6 if model_type == '2d' else 1
+
+    preprocessed_dataset_path = glob.glob(os.getenv('medimgen_preprocessed') + f'/Task{dataset_id}*/')[0]
+    dataset_folder_name = preprocessed_dataset_path.split('/')[-2]
+    results_path = os.path.join(os.getenv('medimgen_results'), dataset_folder_name, model_type, 'autoencoder')
+
+    def try_run(batch_size, grad_accum):
+        try:
+            # Free memory
+            torch.cuda.empty_cache()
+            gc.collect()
+
+            # Update config with new batch size and grad accum
+            test_config = copy.deepcopy(config)
+            test_config['ae_batch_size'] = batch_size
+            test_config['grad_accumulate_step'] = grad_accum
+            test_config['n_epochs'] = 1
+
+            test_config['progress_bar'] = False
+            test_config['output_mode'] = 'verbose'
+            test_config['results_path'] = results_path
+            test_config['load_model_path'] = None
+
+            # Rebuild model and data loaders
+            model = model_fn(config=test_config, latent_space_type='vae', print_summary=False)
+            transformations = test_config['ae_transformations']
+            train_loader, val_loader = get_data_loaders(test_config, dataset_id, 'train-val-test', batch_size, model_type, transformations)
+
+            # Try training for a short time (1 epoch)
+            model.train(train_loader=train_loader, val_loader=val_loader)
+            print(f"We will use batch size = {batch_size} and grad_accumulate_step = {grad_accum} while training in {model_type}.")
+            if os.path.exists(os.path.join(os.getenv('medimgen_results'), dataset_folder_name)):
+                shutil.rmtree(os.path.join(os.getenv('medimgen_results'), dataset_folder_name))
+            return True
+
+        except RuntimeError as e:
+            if os.path.exists(os.path.join(os.getenv('medimgen_results'), dataset_folder_name)):
+                shutil.rmtree(os.path.join(os.getenv('medimgen_results'), dataset_folder_name))
+            if any([item in str(e) for item in ["CUDA out of memory", "Failed to run torchinfo"]]):
+                print(f"[OOM] BatchSize: {batch_size}, GradAccumSteps: {grad_accum}")
+                del model
+                torch.cuda.empty_cache()
+                gc.collect()
+                return False
+            else:
+                raise e
+
+    # Try initial setting
+    if try_run(batch_size, grad_accum):
+        return batch_size, grad_accum
+
+    if model_type == '2d':
+        while batch_size > min_batch_size:
+            batch_size //= 2
+            if try_run(batch_size, grad_accum):
+                return batch_size, grad_accum
+        # Try increasing grad accumulation
+        grad_accum = 2
+        if try_run(min_batch_size, grad_accum):
+            return min_batch_size, grad_accum
+        else:
+            print(f"Warning! 2D model cannot fit even with batch_size = {batch_size} and grad_accumulate_step = {grad_accum}. You need a bigger GPU!")
+            return batch_size, grad_accum
+
+    elif model_type == '3d':
+        batch_size //= 2
+        grad_accum = 2
+        if try_run(batch_size, grad_accum):
+            return batch_size, grad_accum
+        else:
+            print(f"Warning! 3D model cannot fit even with batch_size = {batch_size} and grad_accumulate_step = {grad_accum}. You need a bigger GPU!")
+            return batch_size, grad_accum
+
+
 def main():
     parser = argparse.ArgumentParser(description="Preprocess dataset and create configuration file.")
     parser.add_argument("dataset_path", type=str, help="Path to dataset folder")
@@ -1424,7 +1522,7 @@ def main():
         print(f"\nNumber of low quality images: {np.sum([True for item in high_quality_dicts if not item['pass']])}")
         image_paths = [item for i, item in enumerate(image_paths) if high_quality_dicts[i]['pass']]
         patient_ids = sorted([os.path.basename(path).replace('.nii.gz', '') for path in image_paths])
-        print(f"Number of final patients: {len(patient_ids)}")
+        print(f"Number of final patients: {len(patient_ids)}\n")
 
     median_shape_w_channel = median_shape
     median_shape, min_shape, max_shape = median_shape[1:], min_shape[1:], max_shape[1:]
@@ -1459,13 +1557,13 @@ def main():
     with open(os.path.join(dataset_save_path, 'dataset.json'), 'w') as f:
         json.dump(dataset_config, f, indent=4)
 
-    print(f"Dataset configuration file saved in {os.path.join(dataset_save_path, 'dataset.json')}")
+    print(f"\nDataset configuration file saved in {os.path.join(dataset_save_path, 'dataset.json')}")
 
-    print(f"\nConfiguring image generation parameters for Dataset ID: {dataset_id}")
-    print(f"Input channels: {input_channels if input_channels is not None else 'all'}")
+    print(f"\nConfiguring image generation parameters for Dataset ID: {formatted_task_number}")
 
     input_channels = input_channels if input_channels is not None \
         else [i for i in range(dataset_config['n_channels'])]
+    print(f"Input channels: {input_channels if input_channels is not None else 'all'}")
 
     if 0.7 * dataset_config['n_patients'] < 100:
         n_epochs_multiplier = 1
@@ -1482,6 +1580,18 @@ def main():
 
     config_2d = create_config_dict(dataset_config, input_channels, n_epochs_multiplier, vae_dict_2d, ddpm_dict_2d)
     config_3d = create_config_dict(dataset_config, input_channels, n_epochs_multiplier, vae_dict_3d, ddpm_dict_3d)
+
+    print('\nConfiguring batch size and gradient accumulation steps based on GPU capacity...')
+    batch_size_2d, grad_accumulate_step_2d = auto_select_hyperparams(formatted_task_number, AutoEncoder, config_2d, model_type='2d', init_batch_size=24, init_grad_accum=1)
+    batch_size_3d, grad_accumulate_step_3d = auto_select_hyperparams(formatted_task_number, AutoEncoder, config_3d, model_type='3d', init_batch_size=2, init_grad_accum=1)
+
+    config_2d['ae_batch_size'] = batch_size_2d
+    config_2d['ddpm_batch_size'] = batch_size_2d
+    config_2d['grad_accumulate_step'] = grad_accumulate_step_2d
+
+    config_3d['ae_batch_size'] = batch_size_3d
+    config_3d['ddpm_batch_size'] = batch_size_3d * 2
+    config_3d['grad_accumulate_step'] = grad_accumulate_step_3d
 
     config = {'2D': config_2d, '3D': config_3d}
 
