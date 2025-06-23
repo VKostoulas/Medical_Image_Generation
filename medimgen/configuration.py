@@ -1202,7 +1202,7 @@ def get_cropped_resampled_shape_channel_min_max_and_quality(path, median_spacing
             avg_laplacian_var = np.mean(laplacian_variances)
             high_quality_dict[f'Channel {c}'] = avg_laplacian_var
 
-    _, min_max_per_channel = normalize_zscore_then_clip_then_minmax(cropped_image)
+    _, min_max_per_channel = normalize_zscore_then_minmax(cropped_image)
 
     return cropped_image.shape, min_max_per_channel, high_quality_dict
 
@@ -1330,7 +1330,7 @@ def process_patient(patient_id, images_path, labels_path, images_save_path, labe
     cropped_label = np.transpose(cropped_label, (2, 1, 0))
     log_lines.extend(resample_log_lines), log_lines.extend(crop_log_lines)
 
-    normalized_image_data, min_max = normalize_zscore_then_clip_then_minmax(cropped_image)
+    normalized_image_data, min_max = normalize_zscore_then_minmax(cropped_image)
 
     compressor = Blosc(cname='zstd', clevel=5, shuffle=Blosc.BITSHUFFLE)
     # Choose chunk size based on data shape and access pattern
