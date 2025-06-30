@@ -1431,12 +1431,14 @@ def process_patient(patient_id, images_path, labels_path, images_save_path, labe
 
 
 def validate_lq_threshold(value):
-    if value.lower() == 'auto':
-        return 'auto'
+    if value == 'otsu':
+        return 'otsu'
+    elif value == 'percentile':
+        return 'percentile'
     try:
         return int(value)
     except ValueError:
-        raise argparse.ArgumentTypeError("lq_threshold must be 'auto', an integer, or not set (None).")
+        raise argparse.ArgumentTypeError("lq_threshold must be one of 'otsu', 'percentile', an integer value or not set (None).")
 
 
 def process_patient_wrapper(args):
