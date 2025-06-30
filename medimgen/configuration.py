@@ -1531,7 +1531,7 @@ def main():
                         help="List of integers specifying input channel indexes to use. If not specified, all available channels will be used.")
     parser.add_argument("-lqt", "--lq_threshold", required=False, type=validate_lq_threshold, default=None,
                         help="Threshold to separate high/low quality images based on Laplacian variance. "
-                             "Accepts 'auto', an integer, or None (default: None).")
+                             "Accepts 'otsu', 'percentile', an integer value or None (default: None).")
 
     args = parser.parse_args()
     dataset_path = args.dataset_path
