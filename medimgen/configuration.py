@@ -829,7 +829,7 @@ def create_autoencoder_dict(dataset_config, input_channels, spatial_dims):
     patch_size_3d = [min(valid_3d_sizes, key=lambda x: abs(x - size)) for size in median_image_size]
     patch_size = patch_size_2d[1:] if spatial_dims == 2 else patch_size_3d
 
-    base_autoencoder_channels = [32, 64, 128, 128]
+    base_autoencoder_channels = [64, 128, 256, 256] if spatial_dims == 2 else [32, 64, 128, 128]
 
     vae_dict = {'spatial_dims': spatial_dims,
                 'in_channels': len(input_channels),
@@ -1071,27 +1071,96 @@ def crop_image_label(image, label=None):
         return cropped_image, log_lines
 
 
+# def resample_image_label(image, target_spacing, label=None):
+#     image_data = image.get_fdata()
+#     if label is not None:
+#         label_data = label.get_fdata()
+#     original_spacing = np.sqrt(np.sum(image.affine[:3, :3] ** 2, axis=0))
+#     if tuple(original_spacing) != tuple(target_spacing):
+#         log_lines = ["    Difference with target spacing. Resampling image...",
+#                     f"        Original spacing: {original_spacing} - Final spacing: {target_spacing}"]
+#         zoom_factors = original_spacing / target_spacing
+#         resampled_image = scipy.ndimage.zoom(image_data, zoom_factors, order=3)  # Trilinear interpolation
+#         # clip resampling artifacts
+#         resampled_image = np.clip(resampled_image, 0, None)
+#         resampled_image = nib.Nifti1Image(resampled_image, image.affine, image.header)
+#         if label is not None:
+#             resampled_label = scipy.ndimage.zoom(label_data, zoom_factors, order=0)  # Nearest-neighbor
+#             resampled_label = nib.Nifti1Image(resampled_label, label.affine, label.header)
+#             return resampled_image, resampled_label, log_lines
+#         else:
+#             return resampled_image, log_lines
+#     else:
+#         log_lines = ["    No resampling needed"]
+#         if label is not None:
+#             return image, label, log_lines
+#         else:
+#             return image, log_lines
+
+
+def is_anisotropic(spacing, threshold=3.0):
+    return (np.max(spacing) / np.min(spacing)) > threshold
+
+
 def resample_image_label(image, target_spacing, label=None):
     image_data = image.get_fdata()
     if label is not None:
         label_data = label.get_fdata()
+
     original_spacing = np.sqrt(np.sum(image.affine[:3, :3] ** 2, axis=0))
-    if tuple(original_spacing) != tuple(target_spacing):
-        log_lines = ["    Difference with target spacing. Resampling image...",
-                    f"        Original spacing: {original_spacing} - Final spacing: {target_spacing}"]
-        zoom_factors = original_spacing / target_spacing
-        resampled_image = scipy.ndimage.zoom(image_data, zoom_factors, order=3)  # Trilinear interpolation
-        # clip resampling artifacts
-        resampled_image = np.clip(resampled_image, 0, None)
+    zoom_factors = original_spacing / target_spacing
+    anisotropic = is_anisotropic(original_spacing)
+
+    log_lines = []
+    if not np.allclose(original_spacing, target_spacing):
+        log_lines.append("    Difference with target spacing. Resampling image...")
+        log_lines.append(f"        Original spacing: {original_spacing} - Final spacing: {target_spacing}")
+
+        if anisotropic:
+            lowres_axis = np.argmax(original_spacing)
+            order = [3 if i != lowres_axis else 0 for i in range(3)]
+        else:
+            order = [3, 3, 3]
+
+        resampled_image = image_data
+        for axis in range(3):
+            if zoom_factors[axis] != 1:
+                resampled_image = scipy.ndimage.zoom(resampled_image, zoom=[zoom_factors[axis] if i == axis else 1 for i in range(3)],
+                                                     order=order[axis])
+        # resampled_image = np.clip(resampled_image, 0, None)
         resampled_image = nib.Nifti1Image(resampled_image, image.affine, image.header)
+
         if label is not None:
-            resampled_label = scipy.ndimage.zoom(label_data, zoom_factors, order=0)  # Nearest-neighbor
+            unique_labels = np.unique(label_data)
+            unique_labels = unique_labels[unique_labels != 0]  # exclude background
+            one_hot = np.stack([label_data == cls for cls in unique_labels], axis=0)
+
+            if anisotropic:
+                interp_orders = [1 if i != np.argmax(original_spacing) else 0 for i in range(3)]
+            else:
+                interp_orders = [1, 1, 1]
+
+            resampled_channels = []
+            for c in range(one_hot.shape[0]):
+                channel = one_hot[c].astype(np.float32)
+                for axis in range(3):
+                    if zoom_factors[axis] != 1:
+                        channel = scipy.ndimage.zoom(channel, zoom=[zoom_factors[axis] if i == axis else 1 for i in range(3)],
+                                                     order=interp_orders[axis])
+                resampled_channels.append(channel)
+
+            argmax_output = np.argmax(np.stack(resampled_channels, axis=0), axis=0)
+            resampled_label = np.zeros_like(argmax_output, dtype=np.uint8)
+            for idx, cls in enumerate(unique_labels):
+                resampled_label[argmax_output == idx] = cls
+
             resampled_label = nib.Nifti1Image(resampled_label, label.affine, label.header)
+
             return resampled_image, resampled_label, log_lines
         else:
             return resampled_image, log_lines
     else:
-        log_lines = ["    No resampling needed"]
+        log_lines.append("    No resampling needed")
         if label is not None:
             return image, label, log_lines
         else:
@@ -1207,7 +1276,7 @@ def get_cropped_resampled_shape_channel_min_max_and_quality(path, median_spacing
     return cropped_image.shape, min_max_per_channel, high_quality_dict
 
 
-def calculate_dataset_shapes_channel_min_max_anq_qualities(image_paths, median_spacing, input_channels, lq_threshold):
+def calculate_dataset_shapes_channel_min_max_and_qualities(image_paths, median_spacing, input_channels, lq_threshold):
     # Prepare function with fixed spacing
     fn = partial(get_cropped_resampled_shape_channel_min_max_and_quality, input_channels=input_channels,
                  median_spacing=median_spacing)
@@ -1229,19 +1298,19 @@ def calculate_dataset_shapes_channel_min_max_anq_qualities(image_paths, median_s
     for c in current_input_channels:
 
         if lq_threshold is not None:
-
-            if lq_threshold == 'auto':
-                print('\nUsing automatic thresholding to detect low quality images')
-                current_channel_lp_vars = np.array([item[f'Channel {c}'] for item in high_quality_dicts])
-                threshold_1 = threshold_otsu(current_channel_lp_vars)
-                threshold_2 = np.percentile(current_channel_lp_vars, 5)
-                n_of_imgs_less_than_thr_1 = len([item for item in current_channel_lp_vars if item < threshold_1])
-                threshold = threshold_1 if n_of_imgs_less_than_thr_1 <= len(image_paths) / 3 else threshold_2
+            current_channel_lp_vars = np.array([item[f'Channel {c}'] for item in high_quality_dicts])
+            if lq_threshold == 'otsu':
+                print('\nUsing otsu thresholding for laplacian variances to detect low quality images')
+                threshold = threshold_otsu(current_channel_lp_vars)
+            elif lq_threshold == 'percentile':
+                print('\nUsing 5% percentile thresholding for laplacian variances to detect low quality images')
+                threshold = np.percentile(current_channel_lp_vars, 5)
             elif isinstance(lq_threshold, int):
-                print('\nUsing manual thresholding to detect low quality images')
+                print('\nUsing manual thresholding for laplacian variances to detect low quality images')
                 threshold = lq_threshold
             else:
-                raise ValueError("Argument 'lq_threshold' should be one of: None, 'auto', or an integer value")
+                raise ValueError(
+                    "Argument 'lq_threshold' should be one of: None, 'otsu', 'percentile' or an integer value")
 
             print(f'Threshold: {threshold}')
             for item in high_quality_dicts:
@@ -1374,16 +1443,6 @@ def process_patient_wrapper(args):
     return process_patient(*args)
 
 
-def default_memory_estimator(model, batch_size, model_type):
-    """
-    Placeholder memory estimator. Replace this with a proper memory estimator.
-    For now, it returns a mock value based on arbitrary assumptions.
-    """
-    base_mem = 4  # Assume base memory for model + optimizer
-    per_sample_mem = 0.5 if model_type == '2D' else 1.5  # GB per sample
-    return base_mem + batch_size * per_sample_mem
-
-
 def auto_select_hyperparams(dataset_id, model_fn, config, model_type='2d', init_batch_size=48, init_grad_accum=1):
 
     assert model_type in ['2d', '3d'], "model_type must be either '2d' or '3d'"
@@ -1508,7 +1567,7 @@ def main():
     median_spacing = calculate_median_spacing(image_paths)
     print(
         "Calculating dataset min and max values, median, min, and max shape after cropping and resampling, and low quality images...")
-    dataset_results = calculate_dataset_shapes_channel_min_max_anq_qualities(image_paths, median_spacing,
+    dataset_results = calculate_dataset_shapes_channel_min_max_and_qualities(image_paths, median_spacing,
                                                                              input_channels, lq_threshold)
     median_shape, min_shape, max_shape, global_channel_min, global_channel_max, high_quality_dicts = dataset_results
     print(f"\nMedian voxel spacing: {median_spacing}")
